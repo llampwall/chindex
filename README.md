@@ -30,8 +30,8 @@ Create a JSON config file:
 
 ## Run
 ```powershell
-chinvex ingest --config P:\ai_memory\profiles\streamside.json
-chinvex search --config P:\ai_memory\profiles\streamside.json "your query"
+chinvex ingest --config .\config.json
+chinvex search --config .\config.json "your query"
 ```
 
 ## Troubleshooting

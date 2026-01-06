@@ -21,7 +21,7 @@ def _load_config(config_path: Path):
 
 @app.command("ingest")
 def ingest_cmd(
-    config: Path = typer.Option(..., "--config", exists=True, help="Path to config JSON"),
+    config: Path = typer.Option(Path("config.json"), "--config", help="Path to config JSON"),
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
 ) -> None:
     if not in_venv():
@@ -34,7 +34,7 @@ def ingest_cmd(
 @app.command("search")
 def search_cmd(
     query: str = typer.Argument(..., help="Search query"),
-    config: Path = typer.Option(..., "--config", exists=True, help="Path to config JSON"),
+    config: Path = typer.Option(Path("config.json"), "--config", help="Path to config JSON"),
     k: int = typer.Option(8, "--k", help="Top K results"),
     min_score: float = typer.Option(0.35, "--min-score", help="Minimum score threshold"),
     source: str = typer.Option("all", "--source", help="all|repo|chat"),
