@@ -48,9 +48,9 @@ chinvex-mcp --config .\config.json --ollama-host http://skynet:11434 --k 8 --min
 ### Codex config.toml
 ```
 [mcp_servers.chinvex]
-command = "C:\\Code\\chindex\\.venv\\Scripts\\chinvex-mcp.exe"
-args = ["--config", "C:\\Code\\chindex\\config.json"]
-cwd = "C:\\Code\\chindex"
+command = "[path_to_chinvex]\\.venv\\Scripts\\chinvex-mcp.exe"
+args = ["--config", "[path_to_chinvex]\\config.json"]
+cwd = "[path_to_chinvex]"
 startup_timeout_sec = 30
 tool_timeout_sec = 120
 ```
