@@ -1,0 +1,9 @@
+{
+  "index_dir": "P:\\ai_memory\\indexes\\streamside",
+  "ollama_host": "http://skynet:11434",
+  "embedding_model": "mxbai-embed-large",
+  "sources": [
+    {"type": "repo", "name": "streamside", "path": "C:\\Code\\streamside"},
+    {"type": "chat", "project": "Twitch", "path": "P:\\ai_memory\\projects\\Twitch\\chats"}
+  ]
+}
