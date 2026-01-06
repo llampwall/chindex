@@ -35,7 +35,7 @@ chinvex search --config .\config.json "your query"
 ```
 
 ## MCP Server
-Run the local MCP server over stdio:
+Run the local MCP server over stdio (defaults to `.\config.json`):
 ```powershell
 chinvex-mcp --config .\config.json
 ```

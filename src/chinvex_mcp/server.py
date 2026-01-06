@@ -46,7 +46,7 @@ _INDEX_CACHE: dict[str, IndexHandle] = {}
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="chinvex MCP server (stdio)")
-    parser.add_argument("--config", required=True, help="Path to chinvex config JSON")
+    parser.add_argument("--config", default="config.json", help="Path to chinvex config JSON")
     parser.add_argument("--ollama-host", help="Override Ollama host for query embeddings")
     parser.add_argument("--k", type=int, default=8, help="Default top-k for search")
     parser.add_argument("--min-score", type=float, default=0.30, help="Default minimum score filter")
@@ -216,4 +216,3 @@ def _get_index_handle(config_path: Path) -> IndexHandle:
     )
     _INDEX_CACHE[key] = handle
     return handle
-
