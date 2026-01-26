@@ -5,7 +5,10 @@ from pathlib import Path
 
 from portalocker import Lock, LockException
 
-from .chunking import chunk_chat, chunk_repo
+from .adapters.cx_appserver.client import AppServerClient
+from .adapters.cx_appserver.normalize import normalize_to_conversation_doc
+from .adapters.cx_appserver.schemas import AppServerThread
+from .chunking import chunk_chat, chunk_conversation, chunk_repo
 from .config import AppConfig, SourceConfig
 from .context import ContextConfig
 from .embed import OllamaEmbedder
@@ -296,7 +299,15 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
                     ctx, chat_root, storage, embedder, vectors, stats
                 )
 
-            # TODO: Ingest codex_session_roots (Task 14)
+            # Ingest Codex sessions
+            # For P0, codex_session_roots triggers fetching from app-server URL
+            import os
+            if ctx.includes.codex_session_roots:
+                appserver_url = os.getenv("CHINVEX_APPSERVER_URL", "http://localhost:8080")
+                _ingest_codex_sessions_from_context(
+                    ctx, appserver_url, storage, embedder, vectors, stats
+                )
+
             # TODO: Ingest note_roots (post-P0)
 
             storage.record_run(run_id, started_at, dump_json(stats))
@@ -551,6 +562,157 @@ def _ingest_chat_from_context(
             size_bytes=path.stat().st_size,
             mtime_unix=int(path.stat().st_mtime),
             content_sha256=content_hash,
+            parser_version="v1",
+            chunker_version="v1",
+            embedded_model=embedder.model,
+            last_status="ok",
+            last_error=None,
+        )
+
+        stats["documents"] += 1
+        stats["chunks"] += len(chunks)
+
+
+def _ingest_codex_sessions_from_context(
+    ctx: ContextConfig,
+    appserver_url: str,
+    storage: Storage,
+    embedder: OllamaEmbedder,
+    vectors: VectorStore,
+    stats: dict,
+) -> None:
+    """
+    Ingest Codex sessions from app-server with fingerprinting.
+
+    Uses thread_updated_at and last_turn_id for incremental detection.
+    """
+    client = AppServerClient(appserver_url)
+
+    try:
+        threads_list = client.list_threads()
+    except Exception as exc:
+        print(f"Warning: failed to fetch threads from {appserver_url}: {exc}")
+        return
+
+    for thread_meta in threads_list:
+        thread_id = thread_meta["id"]
+        thread_updated_at = thread_meta.get("updated_at", "")
+
+        # Check fingerprint
+        fp = storage.get_fingerprint(thread_id, ctx.name)
+        if fp and fp["thread_updated_at"] == thread_updated_at:
+            stats["skipped"] += 1
+            continue
+
+        # Fetch full thread
+        try:
+            raw_thread = client.get_thread(thread_id)
+        except Exception as exc:
+            print(f"Warning: failed to fetch thread {thread_id}: {exc}")
+            # Record error fingerprint
+            doc_id = sha256_text(f"codex_session|{ctx.name}|{thread_id}")
+            storage.upsert_fingerprint(
+                source_uri=thread_id,
+                context_name=ctx.name,
+                source_type="codex_session",
+                doc_id=doc_id,
+                thread_updated_at=thread_updated_at,
+                last_turn_id=None,
+                parser_version="v1",
+                chunker_version="v1",
+                embedded_model=embedder.model,
+                last_status="error",
+                last_error=str(exc),
+            )
+            continue
+
+        # Normalize to ConversationDoc
+        app_thread = AppServerThread.model_validate(raw_thread)
+        conversation_doc = normalize_to_conversation_doc(app_thread)
+
+        doc_id = sha256_text(f"codex_session|{ctx.name}|{thread_id}")
+        updated_at = conversation_doc["updated_at"]
+        content_hash = sha256_text(dump_json(conversation_doc["turns"]))
+
+        # Delete old chunks
+        chunk_ids = storage.delete_chunks_for_doc(doc_id) if fp else []
+        if chunk_ids:
+            vectors.delete(chunk_ids)
+
+        # Ingest document
+        meta = {
+            "thread_id": thread_id,
+            "title": conversation_doc["title"],
+            "created_at": conversation_doc["created_at"],
+            "links": conversation_doc["links"],
+        }
+
+        storage.upsert_document(
+            doc_id=doc_id,
+            source_type="codex_session",
+            source_uri=thread_id,
+            project=None,
+            repo=None,
+            title=conversation_doc["title"],
+            updated_at=updated_at,
+            content_hash=content_hash,
+            meta_json=dump_json(meta),
+        )
+
+        # Chunk conversation
+        chunks = chunk_conversation(conversation_doc)
+
+        chunk_rows = []
+        fts_rows = []
+        ids: list[str] = []
+        docs: list[str] = []
+        metas: list[dict] = []
+
+        for chunk in chunks:
+            chunk_id = sha256_text(f"{doc_id}|{chunk.ordinal}|{sha256_text(chunk.text)}")
+            cmeta = {
+                "doc_id": doc_id,
+                "ordinal": chunk.ordinal,
+                "thread_id": thread_id,
+                "title": conversation_doc["title"],
+            }
+
+            chunk_rows.append((
+                chunk_id,
+                doc_id,
+                "codex_session",
+                None,
+                None,
+                chunk.ordinal,
+                chunk.text,
+                updated_at,
+                dump_json(cmeta),
+            ))
+            fts_rows.append((chunk_id, chunk.text))
+            ids.append(chunk_id)
+            docs.append(chunk.text)
+            metas.append({
+                "source_type": "codex_session",
+                "doc_id": doc_id,
+                "ordinal": chunk.ordinal,
+                "thread_id": thread_id,
+                "title": conversation_doc["title"],
+            })
+
+        embeddings = embedder.embed(docs)
+        storage.upsert_chunks(chunk_rows)
+        storage.upsert_fts(fts_rows)
+        vectors.upsert(ids=ids, documents=docs, metadatas=metas, embeddings=embeddings)
+
+        # Update fingerprint
+        last_turn_id = conversation_doc["turns"][-1]["turn_id"] if conversation_doc["turns"] else None
+        storage.upsert_fingerprint(
+            source_uri=thread_id,
+            context_name=ctx.name,
+            source_type="codex_session",
+            doc_id=doc_id,
+            thread_updated_at=thread_updated_at,
+            last_turn_id=last_turn_id,
             parser_version="v1",
             chunker_version="v1",
             embedded_model=embedder.model,
