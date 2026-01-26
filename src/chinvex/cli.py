@@ -5,11 +5,16 @@ from pathlib import Path
 import typer
 
 from .config import ConfigError, load_config
+from .context_cli import create_context, get_contexts_root
 from .ingest import ingest
 from .search import search
 from .util import in_venv
 
 app = typer.Typer(add_completion=False, help="chinvex: hybrid retrieval index CLI")
+
+# Add context subcommand group
+context_app = typer.Typer(help="Manage contexts")
+app.add_typer(context_app, name="context")
 
 
 def _load_config(config_path: Path):
@@ -66,6 +71,12 @@ def search_cmd(
         typer.echo(f"   {result.title}")
         typer.echo(f"   {result.citation}")
         typer.echo(f"   {result.snippet}")
+
+
+@context_app.command("create")
+def context_create_cmd(name: str = typer.Argument(..., help="Context name")) -> None:
+    """Create a new context."""
+    create_context(name)
 
 
 if __name__ == "__main__":
