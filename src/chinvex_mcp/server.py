@@ -216,3 +216,70 @@ def _get_index_handle(config_path: Path) -> IndexHandle:
     )
     _INDEX_CACHE[key] = handle
     return handle
+
+
+def handle_chinvex_answer(
+    query: str,
+    context_name: str,
+    *,
+    k: int = 8,
+    min_score: float = 0.35,
+    source: str | None = None,
+    contexts_root: Path | None = None,
+) -> dict:
+    """
+    Grounded search tool that returns evidence pack (no LLM synthesis).
+
+    Returns:
+        {
+            "query": str,
+            "chunks": [{"chunk_id": str, "text": str, "score": float, "source_type": str}],
+            "citations": [str],
+            "context_name": str,
+            "weights_applied": dict[str, float]
+        }
+    """
+    import os
+    from chinvex.context import load_context, ContextNotFoundError
+    from chinvex.search import search_context
+
+    if contexts_root is None:
+        contexts_root = Path(os.getenv("CHINVEX_CONTEXTS_ROOT", "P:/ai_memory/contexts"))
+
+    try:
+        ctx = load_context(context_name, contexts_root)
+    except ContextNotFoundError as exc:
+        return {
+            "error": str(exc),
+            "query": query,
+            "chunks": [],
+            "citations": [],
+        }
+
+    results = search_context(
+        ctx,
+        query,
+        k=k,
+        min_score=min_score,
+        source=source or "all",
+    )
+
+    chunks = [
+        {
+            "chunk_id": r.chunk_id,
+            "text": r.snippet,  # P0: return snippet, not full text
+            "score": r.score,
+            "source_type": r.source_type,
+        }
+        for r in results
+    ]
+
+    citations = [r.citation for r in results]
+
+    return {
+        "query": query,
+        "chunks": chunks,
+        "citations": citations,
+        "context_name": context_name,
+        "weights_applied": ctx.weights,
+    }
