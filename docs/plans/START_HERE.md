@@ -41,7 +41,8 @@ The P0 implementation plan is split into two parts:
 When you complete a task:
 1. Mark the task header as `✅ DONE` in the plan file
 2. Update the status table at the top of the plan
-3. Commit with clear message
-4. Move to next TODO task
+3. Update the Instructions for Executing Agent
+4. Commit with clear message
+5. Move to next TODO task
 
 Do NOT skip tasks or work out of order unless dependencies allow.
