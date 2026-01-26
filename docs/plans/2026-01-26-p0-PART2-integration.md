@@ -8,11 +8,11 @@
 
 **Tech Stack:** Python 3.12, SQLite FTS5, Chroma, Ollama embeddings, Typer CLI, Pydantic schemas, MCP stdio protocol
 
-**Status:** All tasks in Part 2 are TODO (Part 1 foundation is complete)
+**Status:** Tasks 11-13 DONE, Tasks 14-18 TODO
 
 ---
 
-## Task 11: ❌ TODO - Score Blending with Weight Renormalization
+## Task 11: ✅ DONE - Score Blending with Weight Renormalization
 
 **Files:**
 - Create: `src/chinvex/scoring.py`
@@ -165,7 +165,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ---
 
-## Task 12: ❌ TODO - Integrate Scoring into Search
+## Task 12: ✅ DONE - Integrate Scoring into Search
 
 **Files:**
 - Modify: `src/chinvex/search.py`
@@ -425,7 +425,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ---
 
-## Task 13: ❌ TODO - Update CLI Ingest to Use Context Registry
+## Task 13: ✅ DONE - Update CLI Ingest to Use Context Registry
 
 **Files:**
 - Modify: `src/chinvex/cli.py`
