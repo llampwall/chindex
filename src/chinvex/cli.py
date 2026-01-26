@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 
 from .config import ConfigError, load_config
-from .context_cli import create_context, get_contexts_root
+from .context_cli import create_context, get_contexts_root, list_contexts_cli
 from .ingest import ingest
 from .search import search
 from .util import in_venv
@@ -77,6 +77,12 @@ def search_cmd(
 def context_create_cmd(name: str = typer.Argument(..., help="Context name")) -> None:
     """Create a new context."""
     create_context(name)
+
+
+@context_app.command("list")
+def context_list_cmd() -> None:
+    """List all contexts."""
+    list_contexts_cli()
 
 
 if __name__ == "__main__":

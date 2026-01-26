@@ -90,3 +90,25 @@ def create_context(name: str) -> None:
     typer.secho(f"Created context: {name}", fg=typer.colors.GREEN)
     typer.echo(f"  Config: {context_file}")
     typer.echo(f"  Index:  {index_dir}")
+
+
+def list_contexts_cli() -> None:
+    """List all contexts."""
+    contexts_root = get_contexts_root()
+
+    from .context import list_contexts
+    contexts = list_contexts(contexts_root)
+
+    if not contexts:
+        typer.echo("No contexts found.")
+        return
+
+    # Print table header
+    typer.echo(f"{'NAME':<20} {'ALIASES':<30} {'UPDATED':<25}")
+    typer.echo("-" * 75)
+
+    for ctx in contexts:
+        aliases_str = ", ".join(ctx.aliases) if ctx.aliases else "-"
+        if len(aliases_str) > 28:
+            aliases_str = aliases_str[:25] + "..."
+        typer.echo(f"{ctx.name:<20} {aliases_str:<30} {ctx.updated_at:<25}")
