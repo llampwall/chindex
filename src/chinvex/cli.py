@@ -16,6 +16,10 @@ app = typer.Typer(add_completion=False, help="chinvex: hybrid retrieval index CL
 context_app = typer.Typer(help="Manage contexts")
 app.add_typer(context_app, name="context")
 
+# Add state subcommand group
+state_app = typer.Typer(help="Manage context state and STATE.md")
+app.add_typer(state_app, name="state")
+
 
 def _load_config(config_path: Path):
     try:
@@ -148,6 +152,71 @@ def context_create_cmd(name: str = typer.Argument(..., help="Context name")) -> 
 def context_list_cmd() -> None:
     """List all contexts."""
     list_contexts_cli()
+
+
+@state_app.command("generate")
+def state_generate_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    llm: bool = typer.Option(False, "--llm", help="Enable LLM consolidation (P1.5)"),
+    since: str = typer.Option("24h", "--since", help="Time window (e.g., 24h, 7d)"),
+) -> None:
+    """Generate state.json and STATE.md."""
+    from datetime import datetime, timedelta, timezone
+    from .context import load_context
+    from .hooks import post_ingest_hook
+    from .ingest import IngestRunResult
+
+    contexts_root = get_contexts_root()
+    ctx = load_context(context, contexts_root)
+
+    # Parse since duration (simple implementation)
+    # TODO: implement full duration parsing
+    if since.endswith("h"):
+        hours = int(since[:-1])
+        since_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
+    elif since.endswith("d"):
+        days = int(since[:-1])
+        since_dt = datetime.now(timezone.utc) - timedelta(days=days)
+    else:
+        typer.secho(f"Invalid --since format: {since}. Use format like '24h' or '7d'", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Create fake result for manual generation
+    result = IngestRunResult(
+        run_id=f"manual_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
+        context=context,
+        started_at=since_dt,
+        finished_at=datetime.now(timezone.utc),
+        new_doc_ids=[],
+        updated_doc_ids=[],
+        new_chunk_ids=[],
+        skipped_doc_ids=[],
+        error_doc_ids=[],
+        stats={}
+    )
+
+    try:
+        post_ingest_hook(ctx, result)
+        typer.secho(f"Generated STATE.md for context '{context}'", fg=typer.colors.GREEN)
+    except Exception as e:
+        typer.secho(f"Error generating state: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+
+@state_app.command("show")
+def state_show_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+) -> None:
+    """Print STATE.md to stdout."""
+    contexts_root = get_contexts_root()
+    md_path = contexts_root / context / "STATE.md"
+
+    if not md_path.exists():
+        typer.secho(f"No STATE.md found for context '{context}'", fg=typer.colors.RED)
+        typer.echo(f"Run 'chinvex state generate --context {context}' to create it.")
+        raise typer.Exit(code=1)
+
+    typer.echo(md_path.read_text(encoding='utf-8'))
 
 
 if __name__ == "__main__":
