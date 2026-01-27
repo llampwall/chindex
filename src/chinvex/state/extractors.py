@@ -1,8 +1,8 @@
 # src/chinvex/state/extractors.py
 import re
 import logging
-from datetime import datetime, timezone
-from chinvex.state.models import RecentlyChanged, ExtractedTodo
+from datetime import datetime, timedelta, timezone
+from chinvex.state.models import RecentlyChanged, ExtractedTodo, ActiveThread
 
 log = logging.getLogger(__name__)
 
@@ -105,3 +105,62 @@ def extract_todos(
                 break  # One match per line
 
     return todos
+
+
+def extract_active_threads(
+    context: str,
+    days: int = 7,
+    limit: int = 20,
+    db_path: str = None
+) -> list[ActiveThread]:
+    """
+    Codex sessions with activity in the last N days.
+
+    Args:
+        context: Context name
+        days: Look back window
+        limit: Max number of results
+        db_path: Override DB path (for testing)
+
+    Returns:
+        List of active threads (empty if P1.1 not run yet)
+
+    Note:
+        Filter by source_type='codex_session' (the category).
+        If P1.1 hasn't run yet, returns empty list (not an error).
+    """
+    import sqlite3
+
+    if db_path is None:
+        db_path = f"P:/ai_memory/indexes/{context}/hybrid.db"
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    cursor = conn.execute("""
+        SELECT doc_id, source_uri, title, updated_at
+        FROM documents
+        WHERE source_type = 'codex_session'
+          AND updated_at > ?
+        ORDER BY updated_at DESC
+        LIMIT ?
+    """, [cutoff.isoformat(), limit])
+
+    results = []
+    for row in cursor:
+        results.append(ActiveThread(
+            id=row['doc_id'],
+            title=row['title'] or "Untitled",
+            status="open",
+            last_activity=datetime.fromisoformat(row['updated_at']),
+            source="codex_session"
+        ))
+
+    conn.close()
+
+    if not results:
+        log.debug(f"No codex_session docs found (P1.1 not run yet?)")
+
+    return results

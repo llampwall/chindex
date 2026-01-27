@@ -98,3 +98,65 @@ def test_extract_todos_from_text():
     assert any("FIXME" in t.text for t in todos)
     assert any("[ ]" in t.text for t in todos)
     assert any("P0" in t.text for t in todos)
+
+
+def test_extract_active_threads():
+    """Test extracting active Codex session threads."""
+    from chinvex.state.extractors import extract_active_threads
+
+    # Create temporary DB file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.db', delete=False) as f:
+        db_path = f.name
+
+    try:
+        # Create DB with schema
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE documents(
+              doc_id TEXT PRIMARY KEY,
+              source_type TEXT NOT NULL,
+              source_uri TEXT NOT NULL,
+              project TEXT,
+              repo TEXT,
+              title TEXT,
+              updated_at TEXT,
+              content_hash TEXT,
+              meta_json TEXT
+            )
+        """)
+
+        # Insert test data
+        now = datetime.now(timezone.utc)
+        recent_time = now - timedelta(days=2)
+
+        conn.execute("""
+            INSERT INTO documents
+            (doc_id, source_type, source_uri, title, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, [
+            "thread_123",
+            "codex_session",
+            "codex://thread_123",
+            "Test Thread",
+            recent_time.isoformat()
+        ])
+        conn.commit()
+        conn.close()
+
+        # Test extraction
+        threads = extract_active_threads(
+            context="TestContext",
+            days=7,
+            limit=20,
+            db_path=db_path
+        )
+
+        assert isinstance(threads, list)
+        assert len(threads) == 1
+        assert threads[0].id == "thread_123"
+        assert threads[0].title == "Test Thread"
+        assert threads[0].status == "open"
+
+    finally:
+        # Cleanup
+        Path(db_path).unlink(missing_ok=True)
