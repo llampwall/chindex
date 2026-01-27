@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from portalocker import Lock, LockException
@@ -15,6 +17,21 @@ from .embed import OllamaEmbedder
 from .storage import Storage
 from .util import dump_json, iso_from_mtime, normalized_path, now_iso, read_text_utf8, sha256_text, walk_files
 from .vectors import VectorStore
+
+
+@dataclass
+class IngestRunResult:
+    """Result of an ingest run, tracking what was processed."""
+    run_id: str
+    context: str
+    started_at: datetime
+    finished_at: datetime
+    new_doc_ids: list[str]      # Docs ingested for first time
+    updated_doc_ids: list[str]  # Docs re-ingested due to changes
+    new_chunk_ids: list[str]    # All chunks created this run
+    skipped_doc_ids: list[str]  # Docs skipped (unchanged)
+    error_doc_ids: list[str]    # Docs that failed
+    stats: dict                 # {files_scanned, total_chunks, etc.}
 
 
 def ingest(config: AppConfig, *, ollama_host_override: str | None = None) -> dict:
