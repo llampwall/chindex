@@ -8,6 +8,27 @@ class AppServerClient:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url.rstrip("/")
 
+    def health_check(self) -> tuple[bool, str]:
+        """
+        Check if app-server is reachable.
+
+        Returns:
+            (success, message) tuple with detailed error info
+        """
+        try:
+            resp = requests.get(f"{self.base_url}/health", timeout=5)
+            if resp.status_code == 401:
+                return (False, "Authentication failed (401). Check godex credentials.")
+            if resp.status_code == 200:
+                return (True, "App-server reachable")
+            return (False, f"Unexpected status: {resp.status_code}")
+        except requests.ConnectionError:
+            return (False, f"Connection refused. Is app-server running at {self.base_url}?")
+        except requests.Timeout:
+            return (False, "Timeout connecting to app-server")
+        except Exception as e:
+            return (False, f"Unexpected error: {e}")
+
     def list_threads(self) -> list[dict]:
         """List all threads from /thread/list endpoint."""
         url = f"{self.base_url}/thread/list"
