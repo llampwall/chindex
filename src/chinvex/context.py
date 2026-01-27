@@ -25,6 +25,12 @@ class ContextIndex:
 
 
 @dataclass(frozen=True)
+class OllamaConfig:
+    base_url: str
+    embed_model: str
+
+
+@dataclass(frozen=True)
 class ContextConfig:
     schema_version: int
     name: str
@@ -32,6 +38,7 @@ class ContextConfig:
     includes: ContextIncludes
     index: ContextIndex
     weights: dict[str, float]
+    ollama: OllamaConfig
     created_at: str
     updated_at: str
 
@@ -51,6 +58,12 @@ class ContextConfig:
             chroma_dir=Path(index_data["chroma_dir"]),
         )
 
+        ollama_data = data.get("ollama", {})
+        ollama = OllamaConfig(
+            base_url=ollama_data.get("base_url", "http://127.0.0.1:11434"),
+            embed_model=ollama_data.get("embed_model", "mxbai-embed-large"),
+        )
+
         return cls(
             schema_version=data["schema_version"],
             name=data["name"],
@@ -58,6 +71,7 @@ class ContextConfig:
             includes=includes,
             index=index,
             weights=data["weights"],
+            ollama=ollama,
             created_at=data["created_at"],
             updated_at=data["updated_at"],
         )
@@ -78,6 +92,10 @@ class ContextConfig:
                 "chroma_dir": str(self.index.chroma_dir),
             },
             "weights": self.weights,
+            "ollama": {
+                "base_url": self.ollama.base_url,
+                "embed_model": self.ollama.embed_model,
+            },
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

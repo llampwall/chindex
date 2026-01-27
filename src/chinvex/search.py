@@ -251,9 +251,9 @@ def search_context(
     storage = Storage(db_path)
     storage.ensure_schema()
 
-    # Use default Ollama host (could be extended to read from context)
-    ollama_host = ollama_host_override or "http://127.0.0.1:11434"
-    embedding_model = "mxbai-embed-large"  # P0 hardcode
+    # Use Ollama config from context
+    ollama_host = ollama_host_override or ctx.ollama.base_url
+    embedding_model = ctx.ollama.embed_model
 
     embedder = OllamaEmbedder(ollama_host, embedding_model)
     vectors = VectorStore(chroma_dir)

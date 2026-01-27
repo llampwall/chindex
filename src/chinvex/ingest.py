@@ -269,10 +269,9 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
             storage = Storage(db_path)
             storage.ensure_schema()
 
-            # Determine embedding model from context or use default
-            # (For P0, hardcode mxbai-embed-large, later read from context if added)
-            embedding_model = "mxbai-embed-large"
-            ollama_host = ollama_host_override or "http://127.0.0.1:11434"
+            # Use Ollama config from context
+            ollama_host = ollama_host_override or ctx.ollama.base_url
+            embedding_model = ctx.ollama.embed_model
 
             embedder = OllamaEmbedder(ollama_host, embedding_model)
             vectors = VectorStore(chroma_dir)

@@ -68,6 +68,10 @@ def create_context(name: str) -> None:
             "codex_session": 0.9,
             "note": 0.7
         },
+        "ollama": {
+            "base_url": "http://127.0.0.1:11434",
+            "embed_model": "mxbai-embed-large"
+        },
         "created_at": now,
         "updated_at": now
     }

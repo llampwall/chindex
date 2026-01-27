@@ -73,6 +73,10 @@ def create_test_context(tmp_dir: Path) -> ContextConfig:
             "chat": 1.0,
             "codex_session": 1.0,
         },
+        "ollama": {
+            "base_url": "http://skynet:11434",
+            "embed_model": "mxbai-embed-large",
+        },
         "created_at": "2026-01-26T00:00:00Z",
         "updated_at": "2026-01-26T00:00:00Z",
     }
@@ -135,10 +139,10 @@ def mock_appserver_responses():
     }
 
 
-def check_ollama() -> bool:
+def check_ollama(base_url: str) -> bool:
     """Check if Ollama is running."""
     try:
-        response = requests.get("http://127.0.0.1:11434/api/tags", timeout=2)
+        response = requests.get(f"{base_url}/api/tags", timeout=2)
         return response.status_code == 200
     except:
         return False
@@ -148,14 +152,14 @@ def test_ingest_repo(ctx: ContextConfig) -> dict:
     """Test 1: Ingest chinvex repo."""
     print("\n[TEST-1] Test 1: Ingesting chinvex repo...")
 
-    if not check_ollama():
+    if not check_ollama(ctx.ollama.base_url):
         raise SmokeTestFailure(
-            "Ollama is not running on localhost:11434. "
-            "Please start Ollama (`ollama serve`) before running smoke tests."
+            f"Ollama is not running at {ctx.ollama.base_url}. "
+            "Please start Ollama before running smoke tests."
         )
 
-    # Use local Ollama
-    stats = ingest_context(ctx, ollama_host_override="http://127.0.0.1:11434")
+    # Use Ollama from context config
+    stats = ingest_context(ctx)
 
     print(f"[PASS] Ingest complete: {stats}")
 
@@ -196,7 +200,7 @@ def test_ingest_codex_session(ctx: ContextConfig) -> dict:
         # Set app-server URL env var
         os.environ["CHINVEX_APPSERVER_URL"] = "http://localhost:8080"
 
-        stats = ingest_context(ctx, ollama_host_override="http://127.0.0.1:11434")
+        stats = ingest_context(ctx)
 
         print(f"[PASS] Codex ingest complete: {stats}")
 
@@ -317,7 +321,7 @@ def test_fingerprint_skip(ctx: ContextConfig) -> dict:
     """Test 6: Re-run ingest and verify fingerprints skip unchanged files."""
     print("\n[TEST-6] Test 6: Re-ingesting to verify fingerprinting...")
 
-    stats = ingest_context(ctx, ollama_host_override="http://127.0.0.1:11434")
+    stats = ingest_context(ctx)
 
     print(f"[PASS] Re-ingest complete: {stats}")
 
