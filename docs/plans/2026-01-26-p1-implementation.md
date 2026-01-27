@@ -6,7 +6,7 @@
 
 **Architecture:** Five parallel-capable components building on P0 foundation: (1) Real Codex app-server ingestion, (2) STATE.md deterministic state tracking, (3) Recency decay ranking, (4) Watch list for proactive alerts, (5) Optional LLM state consolidation.
 
-**Tech Stack:** Python 3.12, SQLite FTS5, Chroma, Ollama, requests, Pydantic
+**Tech Stack:** Python 3.12, SQLite FTS5, Chroma, Ollama, requests, dataclasses (internal models), Pydantic (external API schemas only)
 
 ---
 
@@ -617,7 +617,9 @@ def load_context(name: str, base_dir: Path = None) -> Context:
         context_path.write_text(json.dumps(raw, indent=2))
         log.info(f"Saved upgraded context to {context_path}")
 
-    return Context.model_validate(raw)
+    # Convert to dataclass (Context uses dataclasses, not Pydantic)
+    from chinvex.context import context_from_dict
+    return context_from_dict(raw)
 ```
 
 **Step 4: Run test to verify it passes**
@@ -688,10 +690,11 @@ from .models import StateJson
 __all__ = ["StateJson"]
 
 # src/chinvex/state/models.py
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from pydantic import BaseModel
 
-class RecentlyChanged(BaseModel):
+@dataclass(frozen=True)
+class RecentlyChanged:
     """Document that changed recently."""
     doc_id: str
     source_type: str
@@ -700,7 +703,14 @@ class RecentlyChanged(BaseModel):
     changed_at: datetime
     summary: str | None = None
 
-class ActiveThread(BaseModel):
+    def to_dict(self) -> dict:
+        """Convert to dict for JSON serialization."""
+        d = asdict(self)
+        d['changed_at'] = self.changed_at.isoformat()
+        return d
+
+@dataclass(frozen=True)
+class ActiveThread:
     """Active Codex session thread."""
     id: str
     title: str
@@ -708,21 +718,42 @@ class ActiveThread(BaseModel):
     last_activity: datetime
     source: str
 
-class ExtractedTodo(BaseModel):
+    def to_dict(self) -> dict:
+        """Convert to dict for JSON serialization."""
+        d = asdict(self)
+        d['last_activity'] = self.last_activity.isoformat()
+        return d
+
+@dataclass(frozen=True)
+class ExtractedTodo:
     """TODO extracted from source code."""
     text: str
     source_uri: str
     line: int
     extracted_at: datetime
 
-class WatchHit(BaseModel):
+    def to_dict(self) -> dict:
+        """Convert to dict for JSON serialization."""
+        d = asdict(self)
+        d['extracted_at'] = self.extracted_at.isoformat()
+        return d
+
+@dataclass(frozen=True)
+class WatchHit:
     """Watch query that matched new content."""
     watch_id: str
     query: str
     hits: list[dict]
     triggered_at: datetime
 
-class StateJson(BaseModel):
+    def to_dict(self) -> dict:
+        """Convert to dict for JSON serialization."""
+        d = asdict(self)
+        d['triggered_at'] = self.triggered_at.isoformat()
+        return d
+
+@dataclass(frozen=True)
+class StateJson:
     """State file schema (state.json)."""
     schema_version: int
     context: str
@@ -735,9 +766,27 @@ class StateJson(BaseModel):
     active_threads: list[ActiveThread]
     extracted_todos: list[ExtractedTodo]
     watch_hits: list[WatchHit]
-    decisions: list[dict]  # From LLM consolidator (P1.5)
-    facts: list[dict]      # From LLM consolidator (P1.5)
-    annotations: list[dict]  # Human annotations
+    decisions: list[dict] = field(default_factory=list)  # From LLM consolidator (P1.5)
+    facts: list[dict] = field(default_factory=list)      # From LLM consolidator (P1.5)
+    annotations: list[dict] = field(default_factory=list)  # Human annotations
+
+    def to_dict(self) -> dict:
+        """Convert to dict for JSON serialization (following P0 pattern)."""
+        return {
+            'schema_version': self.schema_version,
+            'context': self.context,
+            'generated_at': self.generated_at.isoformat(),
+            'last_ingest_run': self.last_ingest_run,
+            'generation_status': self.generation_status,
+            'generation_error': self.generation_error,
+            'recently_changed': [item.to_dict() for item in self.recently_changed],
+            'active_threads': [item.to_dict() for item in self.active_threads],
+            'extracted_todos': [item.to_dict() for item in self.extracted_todos],
+            'watch_hits': [item.to_dict() for item in self.watch_hits],
+            'decisions': self.decisions,
+            'facts': self.facts,
+            'annotations': self.annotations
+        }
 ```
 
 **Step 4: Run test to verify it passes**
@@ -750,7 +799,7 @@ Expected: PASS
 
 ```bash
 git add src/chinvex/state/ tests/state/
-git commit -m "feat: define state.json schema and Pydantic models
+git commit -m "feat: define state.json schema and dataclass models
 
 Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 ```
@@ -1414,9 +1463,10 @@ from .models import Watch
 __all__ = ["Watch"]
 
 # src/chinvex/watch/models.py
-from pydantic import BaseModel
+from dataclasses import dataclass, field
 
-class Watch(BaseModel):
+@dataclass(frozen=True)
+class Watch:
     """Watch configuration for monitoring queries."""
     id: str
     query: str
@@ -1424,10 +1474,11 @@ class Watch(BaseModel):
     enabled: bool
     created_at: str  # ISO8601
 
-class WatchConfig(BaseModel):
+@dataclass(frozen=True)
+class WatchConfig:
     """watch.json file schema."""
-    schema_version: int = 1
-    watches: list[Watch]
+    schema_version: int
+    watches: list[Watch] = field(default_factory=list)
 ```
 
 **Step 4: Run test to verify it passes**
@@ -1440,7 +1491,7 @@ Expected: PASS
 
 ```bash
 git add src/chinvex/watch/ tests/watch/
-git commit -m "feat: define watch system models and schema
+git commit -m "feat: define watch system dataclass models and schema
 
 Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 ```
@@ -1710,9 +1761,9 @@ def post_ingest_hook(context, result):
             annotations=[]
         )
 
-    # Save state.json
+    # Save state.json (following P0 pattern: dataclass.to_dict() -> json.dumps)
     state_path = Path(f"P:/ai_memory/contexts/{context.name}/state.json")
-    state_path.write_text(state.model_dump_json(indent=2))
+    state_path.write_text(json.dumps(state.to_dict(), indent=2))
 
     # Render and save STATE.md
     md = render_state_md(state)
@@ -1926,6 +1977,10 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 ---
 
 ## Summary
+
+**Architecture Note:** This plan follows P0's model strategy:
+- **Internal state models**: Use frozen dataclasses with `.to_dict()` methods for JSON serialization
+- **External API schemas**: Use Pydantic BaseModel (e.g., Codex app-server responses) for validation
 
 This plan implements P1 in 18 bite-sized tasks across 3 parallel tracks:
 
