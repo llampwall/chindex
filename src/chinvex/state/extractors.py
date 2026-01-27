@@ -1,6 +1,10 @@
 # src/chinvex/state/extractors.py
+import re
+import logging
 from datetime import datetime, timezone
-from chinvex.state.models import RecentlyChanged
+from chinvex.state.models import RecentlyChanged, ExtractedTodo
+
+log = logging.getLogger(__name__)
 
 
 def extract_recently_changed(
@@ -49,3 +53,55 @@ def extract_recently_changed(
 
     conn.close()
     return results
+
+
+TODO_PATTERNS = [
+    r"\bTODO[:\s](.+?)(?:\n|$)",        # Word boundary for TODO
+    r"\bFIXME[:\s](.+?)(?:\n|$)",       # Word boundary for FIXME
+    r"\bHACK[:\s](.+?)(?:\n|$)",        # Word boundary for HACK
+    r"^\s*-?\s*\[\s\]\s+(.+)$",         # Checkbox at line start
+    r"\bP[0-3][:\s](.+?)(?:\n|$)",      # P0, P1, P2, P3 with word boundary
+]
+
+
+def extract_todos(
+    text: str,
+    source_uri: str,
+    doc_size: int | None = None
+) -> list[ExtractedTodo]:
+    """
+    Extract TODO-like items from text.
+
+    Args:
+        text: Source text to scan
+        source_uri: File/doc URI for attribution
+        doc_size: Optional size check (skip huge files)
+
+    Returns:
+        List of extracted TODOs
+
+    Note:
+        Accepts false positives (TODOs in strings, not just comments).
+        Skips files > 1MB to avoid performance issues.
+    """
+    # Safety: skip huge files
+    if doc_size and doc_size > 1_000_000:
+        log.debug(f"Skipping TODO extraction for {source_uri} (size={doc_size})")
+        return []
+
+    todos = []
+    lines = text.split('\n')
+
+    for i, line in enumerate(lines, 1):
+        for pattern in TODO_PATTERNS:
+            match = re.search(pattern, line, re.IGNORECASE)
+            if match:
+                todos.append(ExtractedTodo(
+                    text=match.group(0).strip(),
+                    source_uri=source_uri,
+                    line=i,
+                    extracted_at=datetime.now(timezone.utc)
+                ))
+                break  # One match per line
+
+    return todos

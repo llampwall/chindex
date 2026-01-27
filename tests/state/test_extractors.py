@@ -76,3 +76,25 @@ def test_extract_recently_changed():
     finally:
         # Cleanup
         Path(db_path).unlink(missing_ok=True)
+
+
+def test_extract_todos_from_text():
+    """Test TODO extraction with various patterns."""
+    from chinvex.state.extractors import extract_todos
+
+    text = """
+    # TODO: implement feature X
+    def foo():
+        pass  # FIXME: handle edge case
+
+    - [ ] unchecked task
+    P0: critical bug fix needed
+    """
+
+    todos = extract_todos(text, "test.py")
+
+    assert len(todos) >= 4
+    assert any("TODO" in t.text for t in todos)
+    assert any("FIXME" in t.text for t in todos)
+    assert any("[ ]" in t.text for t in todos)
+    assert any("P0" in t.text for t in todos)
