@@ -26,7 +26,9 @@ def extract_recently_changed(
     import sqlite3
 
     if db_path is None:
-        db_path = f"P:/ai_memory/indexes/{context}/hybrid.db"
+        from chinvex.context_cli import get_indexes_root
+        indexes_root = get_indexes_root()
+        db_path = str(indexes_root / context / "hybrid.db")
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -132,7 +134,9 @@ def extract_active_threads(
     import sqlite3
 
     if db_path is None:
-        db_path = f"P:/ai_memory/indexes/{context}/hybrid.db"
+        from chinvex.context_cli import get_indexes_root
+        indexes_root = get_indexes_root()
+        db_path = str(indexes_root / context / "hybrid.db")
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 

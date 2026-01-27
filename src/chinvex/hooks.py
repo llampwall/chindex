@@ -25,18 +25,20 @@ def post_ingest_hook(context, result):
         # Extract state components
         since = result.started_at
 
+        db_path = str(context.index.sqlite_path) if hasattr(context, 'index') else None
+
         recently_changed = extract_recently_changed(
             context=context.name,
             since=since,
             limit=20,
-            db_path=getattr(context, 'db_path', None)
+            db_path=db_path
         )
 
         active_threads = extract_active_threads(
             context=context.name,
             days=7,
             limit=20,
-            db_path=getattr(context, 'db_path', None)
+            db_path=db_path
         )
 
         # Extract TODOs from recently changed files
@@ -88,8 +90,10 @@ def post_ingest_hook(context, result):
         # Test path override
         state_dir = Path(context.state_dir)
     else:
-        # Production path
-        state_dir = Path(f"P:/ai_memory/contexts/{context.name}")
+        # Use context root from environment or default
+        from chinvex.context_cli import get_contexts_root
+        contexts_root = get_contexts_root()
+        state_dir = contexts_root / context.name
 
     state_dir.mkdir(parents=True, exist_ok=True)
 

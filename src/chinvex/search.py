@@ -239,6 +239,7 @@ def search_context(
     project: str | None = None,
     repo: str | None = None,
     ollama_host_override: str | None = None,
+    recency_enabled: bool = True,
 ) -> list[SearchResult]:
     """
     Search within a context using context-aware weights.

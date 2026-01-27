@@ -20,6 +20,14 @@ app.add_typer(context_app, name="context")
 state_app = typer.Typer(help="Manage context state and STATE.md")
 app.add_typer(state_app, name="state")
 
+# Add state note subcommand group
+state_note_app = typer.Typer(help="Manage state annotations")
+state_app.add_typer(state_note_app, name="note")
+
+# Add watch subcommand group
+watch_app = typer.Typer(help="Manage watch queries")
+app.add_typer(watch_app, name="watch")
+
 
 def _load_config(config_path: Path):
     try:
@@ -77,6 +85,7 @@ def search_cmd(
     project: str | None = typer.Option(None, "--project", help="Filter by project"),
     repo: str | None = typer.Option(None, "--repo", help="Filter by repo"),
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
+    no_recency: bool = typer.Option(False, "--no-recency", help="Disable recency decay"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
@@ -105,6 +114,7 @@ def search_cmd(
             project=project,
             repo=repo,
             ollama_host_override=ollama_host,
+            recency_enabled=not no_recency,
         )
 
         if not results:
@@ -217,6 +227,138 @@ def state_show_cmd(
         raise typer.Exit(code=1)
 
     typer.echo(md_path.read_text(encoding='utf-8'))
+
+
+@state_note_app.command("add")
+def state_note_add_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    note: str = typer.Argument(..., help="Annotation text"),
+) -> None:
+    """Add an annotation to state.json."""
+    import json
+    from datetime import datetime, timezone
+
+    contexts_root = get_contexts_root()
+    state_path = contexts_root / context / "state.json"
+
+    if not state_path.exists():
+        typer.secho(f"No state.json found for context '{context}'", fg=typer.colors.RED)
+        typer.echo(f"Run 'chinvex state generate --context {context}' first.")
+        raise typer.Exit(code=1)
+
+    # Load existing state
+    state_data = json.loads(state_path.read_text(encoding='utf-8'))
+
+    # Add annotation
+    if "annotations" not in state_data:
+        state_data["annotations"] = []
+
+    state_data["annotations"].append({
+        "text": note,
+        "added_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Save updated state
+    state_path.write_text(json.dumps(state_data, indent=2), encoding='utf-8')
+    typer.secho(f"Added annotation to {context}", fg=typer.colors.GREEN)
+
+
+@watch_app.command("add")
+def watch_add_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    id: str = typer.Option(..., "--id", help="Watch ID"),
+    query: str = typer.Option(..., "--query", help="Search query to watch"),
+    min_score: float = typer.Option(0.5, "--min-score", help="Minimum score threshold"),
+) -> None:
+    """Add a new watch query."""
+    import json
+    from datetime import datetime, timezone
+
+    contexts_root = get_contexts_root()
+    watch_path = contexts_root / context / "watch.json"
+
+    # Load or create watch config
+    if watch_path.exists():
+        watch_data = json.loads(watch_path.read_text(encoding='utf-8'))
+    else:
+        watch_data = {"schema_version": 1, "watches": []}
+
+    # Check for duplicate ID
+    if any(w["id"] == id for w in watch_data["watches"]):
+        typer.secho(f"Watch ID '{id}' already exists", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Add watch
+    watch_data["watches"].append({
+        "id": id,
+        "query": query,
+        "min_score": min_score,
+        "enabled": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Save
+    watch_path.write_text(json.dumps(watch_data, indent=2), encoding='utf-8')
+    typer.secho(f"Added watch '{id}'", fg=typer.colors.GREEN)
+
+
+@watch_app.command("list")
+def watch_list_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+) -> None:
+    """List all watches for a context."""
+    import json
+
+    contexts_root = get_contexts_root()
+    watch_path = contexts_root / context / "watch.json"
+
+    if not watch_path.exists():
+        typer.echo(f"No watches configured for {context}")
+        return
+
+    watch_data = json.loads(watch_path.read_text(encoding='utf-8'))
+
+    if not watch_data.get("watches"):
+        typer.echo(f"No watches configured for {context}")
+        return
+
+    for watch in watch_data["watches"]:
+        status = "enabled" if watch.get("enabled", True) else "disabled"
+        typer.secho(f"[{watch['id']}]", fg=typer.colors.CYAN, bold=True)
+        typer.echo(f"  Query: {watch['query']}")
+        typer.echo(f"  Min score: {watch['min_score']}")
+        typer.echo(f"  Status: {status}")
+        typer.echo(f"  Created: {watch.get('created_at', 'unknown')}")
+
+
+@watch_app.command("remove")
+def watch_remove_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    id: str = typer.Option(..., "--id", help="Watch ID to remove"),
+) -> None:
+    """Remove a watch query."""
+    import json
+
+    contexts_root = get_contexts_root()
+    watch_path = contexts_root / context / "watch.json"
+
+    if not watch_path.exists():
+        typer.secho(f"No watches found for {context}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    watch_data = json.loads(watch_path.read_text(encoding='utf-8'))
+
+    # Find and remove watch
+    original_count = len(watch_data["watches"])
+    watch_data["watches"] = [w for w in watch_data["watches"] if w["id"] != id]
+
+    if len(watch_data["watches"]) == original_count:
+        typer.secho(f"Watch ID '{id}' not found", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Save
+    watch_path.write_text(json.dumps(watch_data, indent=2), encoding='utf-8')
+    typer.secho(f"Removed watch '{id}'", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":
