@@ -31,6 +31,22 @@ class OllamaConfig:
 
 
 @dataclass(frozen=True)
+class CodexAppServerConfig:
+    """Codex app-server ingestion configuration (P1.1)."""
+    enabled: bool
+    base_url: str
+    ingest_limit: int
+    timeout_sec: int
+
+
+@dataclass(frozen=True)
+class RankingConfig:
+    """Recency decay configuration (P1.3)."""
+    recency_enabled: bool
+    recency_half_life_days: int
+
+
+@dataclass(frozen=True)
 class ContextConfig:
     schema_version: int
     name: str
@@ -41,6 +57,10 @@ class ContextConfig:
     ollama: OllamaConfig
     created_at: str
     updated_at: str
+    # P1 additions (schema v2)
+    codex_appserver: CodexAppServerConfig | None = None
+    ranking: RankingConfig | None = None
+    state_llm: dict | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> ContextConfig:
@@ -64,6 +84,27 @@ class ContextConfig:
             embed_model=ollama_data.get("embed_model", "mxbai-embed-large"),
         )
 
+        # P1: schema v2 fields (optional)
+        codex_appserver = None
+        if "codex_appserver" in data:
+            ca_data = data["codex_appserver"]
+            codex_appserver = CodexAppServerConfig(
+                enabled=ca_data.get("enabled", False),
+                base_url=ca_data.get("base_url", "http://localhost:8080"),
+                ingest_limit=ca_data.get("ingest_limit", 100),
+                timeout_sec=ca_data.get("timeout_sec", 30),
+            )
+
+        ranking = None
+        if "ranking" in data:
+            rank_data = data["ranking"]
+            ranking = RankingConfig(
+                recency_enabled=rank_data.get("recency_enabled", True),
+                recency_half_life_days=rank_data.get("recency_half_life_days", 90),
+            )
+
+        state_llm = data.get("state_llm")
+
         return cls(
             schema_version=data["schema_version"],
             name=data["name"],
@@ -74,10 +115,13 @@ class ContextConfig:
             ollama=ollama,
             created_at=data["created_at"],
             updated_at=data["updated_at"],
+            codex_appserver=codex_appserver,
+            ranking=ranking,
+            state_llm=state_llm,
         )
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "schema_version": self.schema_version,
             "name": self.name,
             "aliases": self.aliases,
@@ -100,13 +144,34 @@ class ContextConfig:
             "updated_at": self.updated_at,
         }
 
+        # P1: schema v2 fields (optional)
+        if self.codex_appserver is not None:
+            result["codex_appserver"] = {
+                "enabled": self.codex_appserver.enabled,
+                "base_url": self.codex_appserver.base_url,
+                "ingest_limit": self.codex_appserver.ingest_limit,
+                "timeout_sec": self.codex_appserver.timeout_sec,
+            }
+        if self.ranking is not None:
+            result["ranking"] = {
+                "recency_enabled": self.ranking.recency_enabled,
+                "recency_half_life_days": self.ranking.recency_half_life_days,
+            }
+        if self.state_llm is not None:
+            result["state_llm"] = self.state_llm
+
+        return result
+
 
 def load_context(name: str, contexts_root: Path) -> ContextConfig:
-    """Load context by name or alias."""
+    """Load context by name or alias with auto-upgrade from v1 to v2."""
     # Try direct name match first
     context_path = contexts_root / name / "context.json"
     if context_path.exists():
         data = json.loads(context_path.read_text(encoding="utf-8"))
+        data, upgraded = _maybe_upgrade_schema(data)
+        if upgraded:
+            context_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return ContextConfig.from_dict(data)
 
     # Try alias match
@@ -119,11 +184,42 @@ def load_context(name: str, contexts_root: Path) -> ContextConfig:
         data = json.loads(context_file.read_text(encoding="utf-8"))
         aliases = data.get("aliases", [])
         if name in aliases:
+            data, upgraded = _maybe_upgrade_schema(data)
+            if upgraded:
+                context_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
             return ContextConfig.from_dict(data)
 
     raise ContextNotFoundError(
         f"Unknown context: {name}. Use 'chinvex context list' to see available contexts."
     )
+
+
+def _maybe_upgrade_schema(data: dict) -> tuple[dict, bool]:
+    """
+    Auto-upgrade context schema from v1 to v2.
+
+    Returns:
+        (data, upgraded) tuple where upgraded is True if migration occurred
+    """
+    version = data.get("schema_version", 1)
+
+    if version == 1:
+        # Upgrade v1 → v2: add P1 fields with defaults
+        data["schema_version"] = 2
+        data.setdefault("codex_appserver", {
+            "enabled": False,
+            "base_url": "http://localhost:8080",
+            "ingest_limit": 100,
+            "timeout_sec": 30
+        })
+        data.setdefault("ranking", {
+            "recency_enabled": True,
+            "recency_half_life_days": 90
+        })
+        data.setdefault("state_llm", None)
+        return (data, True)
+
+    return (data, False)
 
 
 def list_contexts(contexts_root: Path) -> list[ContextConfig]:
