@@ -251,11 +251,12 @@ def search_context(
     storage = Storage(db_path)
     storage.ensure_schema()
 
-    # Use Ollama config from context
+    # Use Ollama config from context with localhost fallback
     ollama_host = ollama_host_override or ctx.ollama.base_url
     embedding_model = ctx.ollama.embed_model
+    fallback_host = "http://127.0.0.1:11434" if ollama_host != "http://127.0.0.1:11434" else None
 
-    embedder = OllamaEmbedder(ollama_host, embedding_model)
+    embedder = OllamaEmbedder(ollama_host, embedding_model, fallback_host=fallback_host)
     vectors = VectorStore(chroma_dir)
 
     # Use context weights for source-type prioritization

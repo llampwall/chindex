@@ -69,7 +69,7 @@ def create_context(name: str) -> None:
             "note": 0.7
         },
         "ollama": {
-            "base_url": "http://127.0.0.1:11434",
+            "base_url": "http://skynet:11434",
             "embed_model": "mxbai-embed-large"
         },
         "created_at": now,

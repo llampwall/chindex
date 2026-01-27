@@ -139,24 +139,40 @@ def mock_appserver_responses():
     }
 
 
-def check_ollama(base_url: str) -> bool:
-    """Check if Ollama is running."""
+def check_ollama(base_url: str, fallback_url: str = "http://127.0.0.1:11434") -> tuple[bool, str]:
+    """Check if Ollama is running on primary or fallback host."""
     try:
         response = requests.get(f"{base_url}/api/tags", timeout=2)
-        return response.status_code == 200
+        if response.status_code == 200:
+            return (True, base_url)
     except:
-        return False
+        pass
+
+    # Try fallback
+    if fallback_url and fallback_url != base_url:
+        try:
+            response = requests.get(f"{fallback_url}/api/tags", timeout=2)
+            if response.status_code == 200:
+                return (True, fallback_url)
+        except:
+            pass
+
+    return (False, "")
 
 
 def test_ingest_repo(ctx: ContextConfig) -> dict:
     """Test 1: Ingest chinvex repo."""
     print("\n[TEST-1] Test 1: Ingesting chinvex repo...")
 
-    if not check_ollama(ctx.ollama.base_url):
+    available, host = check_ollama(ctx.ollama.base_url)
+    if not available:
         raise SmokeTestFailure(
-            f"Ollama is not running at {ctx.ollama.base_url}. "
+            f"Ollama is not running on {ctx.ollama.base_url} or http://127.0.0.1:11434. "
             "Please start Ollama before running smoke tests."
         )
+
+    if host != ctx.ollama.base_url:
+        print(f"   Using fallback Ollama at {host}")
 
     # Use Ollama from context config
     stats = ingest_context(ctx)

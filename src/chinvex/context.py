@@ -60,7 +60,7 @@ class ContextConfig:
 
         ollama_data = data.get("ollama", {})
         ollama = OllamaConfig(
-            base_url=ollama_data.get("base_url", "http://127.0.0.1:11434"),
+            base_url=ollama_data.get("base_url", "http://skynet:11434"),
             embed_model=ollama_data.get("embed_model", "mxbai-embed-large"),
         )
 
