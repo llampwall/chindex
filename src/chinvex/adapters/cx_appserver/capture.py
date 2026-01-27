@@ -1,0 +1,28 @@
+# src/chinvex/adapters/cx_appserver/capture.py
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+
+
+def capture_raw_response(data: dict, endpoint_name: str, output_dir: Path) -> Path:
+    """
+    Capture raw API response to file for schema discovery.
+
+    Args:
+        data: Raw JSON response
+        endpoint_name: Name of endpoint (e.g., 'thread_list', 'thread_resume')
+        output_dir: Directory to write samples (default: debug/appserver_samples/)
+
+    Returns:
+        Path to written file
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{endpoint_name}_{timestamp}.json"
+    filepath = output_dir / filename
+
+    filepath.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return filepath

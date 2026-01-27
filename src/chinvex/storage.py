@@ -8,6 +8,8 @@ from typing import Iterable
 
 from .util import now_iso
 
+SCHEMA_VERSION = 1
+
 _CONN: sqlite3.Connection | None = None
 _CONN_PATH: Path | None = None
 
@@ -43,6 +45,36 @@ class Storage:
 
     def ensure_schema(self) -> None:
         self._check_fts5()
+
+        # Create meta table first
+        self._execute(
+            """
+            CREATE TABLE IF NOT EXISTS meta(
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL
+            )
+            """
+        )
+
+        # Check schema version
+        cur = self._execute("SELECT value FROM meta WHERE key = 'schema_version'")
+        row = cur.fetchone()
+        if row is None:
+            # First time setup
+            self._execute(
+                "INSERT INTO meta(key, value) VALUES ('schema_version', ?)",
+                (str(SCHEMA_VERSION),)
+            )
+        else:
+            stored_version = int(row["value"])
+            if stored_version != SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"schema version mismatch: database has version {stored_version}, "
+                    f"but code expects version {SCHEMA_VERSION}. "
+                    f"Delete index folder or run migration script."
+                )
+
+        # Continue with existing table creation
         self._execute(
             """
             CREATE TABLE IF NOT EXISTS documents(
@@ -88,6 +120,35 @@ class Storage:
             CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
             USING fts5(text, content='', tokenize='unicode61')
             """
+        )
+        # After chunks_fts creation
+        self._execute(
+            """
+            CREATE TABLE IF NOT EXISTS source_fingerprints (
+                source_uri TEXT NOT NULL,
+                context_name TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                doc_id TEXT NOT NULL,
+                size_bytes INTEGER,
+                mtime_unix INTEGER,
+                content_sha256 TEXT,
+                thread_updated_at TEXT,
+                last_turn_id TEXT,
+                parser_version TEXT NOT NULL,
+                chunker_version TEXT NOT NULL,
+                embedded_model TEXT,
+                last_ingested_at_unix INTEGER NOT NULL,
+                last_status TEXT NOT NULL,
+                last_error TEXT,
+                PRIMARY KEY (source_uri, context_name)
+            )
+            """
+        )
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_fingerprints_type ON source_fingerprints(source_type)"
+        )
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_fingerprints_status ON source_fingerprints(last_status)"
         )
         self.conn.commit()
 
@@ -256,3 +317,64 @@ class Storage:
                     "SQLite disk I/O error persisted after retry. Move index_dir to a local disk."
                 ) from exc
             raise
+
+    def upsert_fingerprint(
+        self,
+        *,
+        source_uri: str,
+        context_name: str,
+        source_type: str,
+        doc_id: str,
+        parser_version: str,
+        chunker_version: str,
+        embedded_model: str | None,
+        last_status: str,
+        last_error: str | None,
+        size_bytes: int | None = None,
+        mtime_unix: int | None = None,
+        content_sha256: str | None = None,
+        thread_updated_at: str | None = None,
+        last_turn_id: str | None = None,
+    ) -> None:
+        import time
+        last_ingested_at_unix = int(time.time())
+        self._execute(
+            """
+            INSERT INTO source_fingerprints(
+                source_uri, context_name, source_type, doc_id,
+                size_bytes, mtime_unix, content_sha256,
+                thread_updated_at, last_turn_id,
+                parser_version, chunker_version, embedded_model,
+                last_ingested_at_unix, last_status, last_error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_uri, context_name) DO UPDATE SET
+                source_type=excluded.source_type,
+                doc_id=excluded.doc_id,
+                size_bytes=excluded.size_bytes,
+                mtime_unix=excluded.mtime_unix,
+                content_sha256=excluded.content_sha256,
+                thread_updated_at=excluded.thread_updated_at,
+                last_turn_id=excluded.last_turn_id,
+                parser_version=excluded.parser_version,
+                chunker_version=excluded.chunker_version,
+                embedded_model=excluded.embedded_model,
+                last_ingested_at_unix=excluded.last_ingested_at_unix,
+                last_status=excluded.last_status,
+                last_error=excluded.last_error
+            """,
+            (
+                source_uri, context_name, source_type, doc_id,
+                size_bytes, mtime_unix, content_sha256,
+                thread_updated_at, last_turn_id,
+                parser_version, chunker_version, embedded_model,
+                last_ingested_at_unix, last_status, last_error,
+            ),
+        )
+        self.conn.commit()
+
+    def get_fingerprint(self, source_uri: str, context_name: str) -> sqlite3.Row | None:
+        cur = self._execute(
+            "SELECT * FROM source_fingerprints WHERE source_uri = ? AND context_name = ?",
+            (source_uri, context_name),
+        )
+        return cur.fetchone()

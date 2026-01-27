@@ -4,9 +4,10 @@ import requests
 
 
 class OllamaEmbedder:
-    def __init__(self, host: str, model: str) -> None:
+    def __init__(self, host: str, model: str, fallback_host: str | None = None) -> None:
         self.host = host.rstrip("/")
         self.model = model
+        self.fallback_host = fallback_host.rstrip("/") if fallback_host else None
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -14,8 +15,21 @@ class OllamaEmbedder:
         try:
             return self._embed_batch(texts)
         except requests.RequestException as exc:
+            # Try fallback host if configured
+            if self.fallback_host and self.fallback_host != self.host:
+                print(f"Warning: {self.host} unreachable, falling back to {self.fallback_host}")
+                original_host = self.host
+                self.host = self.fallback_host
+                try:
+                    return self._embed_batch(texts)
+                except requests.RequestException:
+                    self.host = original_host  # Restore original
+                    raise RuntimeError(
+                        f"Ollama connection failed on both {original_host} and {self.fallback_host}. "
+                        "Ensure Ollama is running and reachable."
+                    ) from exc
             raise RuntimeError(
-                "Ollama connection failed. Ensure Ollama is running and reachable."
+                f"Ollama connection failed on {self.host}. Ensure Ollama is running and reachable."
             ) from exc
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
