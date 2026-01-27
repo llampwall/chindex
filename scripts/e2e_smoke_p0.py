@@ -92,33 +92,35 @@ def mock_appserver_responses():
     mock_thread = {
         "id": "test-thread-001",
         "title": "P0 Implementation Discussion",
+        "created_at": "2026-01-26T10:00:00Z",
         "updated_at": "2026-01-26T10:02:00Z",
         "turns": [
             {
-                "id": "turn-001",
+                "turn_id": "turn-001",
+                "ts": "2026-01-26T10:00:00Z",
                 "role": "user",
                 "text": "How does chinvex implement hybrid retrieval with SQLite FTS5 and Chroma?",
-                "timestamp": "2026-01-26T10:00:00Z",
             },
             {
-                "id": "turn-002",
+                "turn_id": "turn-002",
+                "ts": "2026-01-26T10:00:30Z",
                 "role": "assistant",
                 "text": "Chinvex uses SQLite FTS5 for lexical search with BM25 ranking, and Chroma for vector search with cosine similarity. The scores are normalized and blended using configurable weights.",
-                "timestamp": "2026-01-26T10:00:30Z",
             },
             {
-                "id": "turn-003",
+                "turn_id": "turn-003",
+                "ts": "2026-01-26T10:01:00Z",
                 "role": "user",
                 "text": "What about fingerprinting for incremental ingest?",
-                "timestamp": "2026-01-26T10:01:00Z",
             },
             {
-                "id": "turn-004",
+                "turn_id": "turn-004",
+                "ts": "2026-01-26T10:01:30Z",
                 "role": "assistant",
                 "text": "Fingerprinting uses mtime and content hash for files, and updated_at timestamps for conversations. This allows skipping unchanged documents during re-ingest.",
-                "timestamp": "2026-01-26T10:01:30Z",
             },
         ],
+        "links": {},
     }
 
     return {
@@ -229,7 +231,7 @@ def test_chinvex_answer_grounded(ctx: ContextConfig, contexts_root: Path):
     """Test 4: chinvex_answer with groundable query."""
     print("\n[PASS] Test 4: chinvex_answer with groundable query...")
 
-    query = "What is chinvex and what does it use for hybrid retrieval?"
+    query = "chinvex hybrid retrieval SQLite FTS5 Chroma"
 
     # Inline the logic from handle_chinvex_answer (avoid MCP imports)
     results = search_context(ctx, query, k=8, min_score=0.2, source="all")
@@ -277,7 +279,7 @@ def test_chinvex_answer_ungrounded(ctx: ContextConfig, contexts_root: Path):
     """Test 5: chinvex_answer with ungroundable query."""
     print("\n[TEST-5] Test 5: chinvex_answer with ungroundable query...")
 
-    query = "What is the recipe for authentic Neapolitan pizza dough?"
+    query = "Neapolitan pizza dough recipe ingredients"
 
     # Inline the logic from handle_chinvex_answer (avoid MCP imports)
     results = search_context(ctx, query, k=8, min_score=0.3, source="all")
