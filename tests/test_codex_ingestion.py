@@ -61,6 +61,13 @@ def test_ingest_codex_sessions_with_fingerprinting(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr("chinvex.ingest.AppServerClient", FakeAppServerClient)
 
     stats = {"documents": 0, "chunks": 0, "skipped": 0}
+    tracking = {
+        "new_doc_ids": [],
+        "updated_doc_ids": [],
+        "new_chunk_ids": [],
+        "skipped_doc_ids": [],
+        "error_doc_ids": [],
+    }
 
     _ingest_codex_sessions_from_context(
         ctx,
@@ -68,7 +75,8 @@ def test_ingest_codex_sessions_with_fingerprinting(tmp_path: Path, monkeypatch) 
         storage,
         embedder,
         vectors,
-        stats
+        stats,
+        tracking
     )
 
     # Should have ingested the thread
@@ -82,13 +90,21 @@ def test_ingest_codex_sessions_with_fingerprinting(tmp_path: Path, monkeypatch) 
 
     # Second ingest should skip
     stats2 = {"documents": 0, "chunks": 0, "skipped": 0}
+    tracking2 = {
+        "new_doc_ids": [],
+        "updated_doc_ids": [],
+        "new_chunk_ids": [],
+        "skipped_doc_ids": [],
+        "error_doc_ids": [],
+    }
     _ingest_codex_sessions_from_context(
         ctx,
         "http://localhost:8080",
         storage,
         embedder,
         vectors,
-        stats2
+        stats2,
+        tracking2
     )
 
     assert stats2["skipped"] > 0

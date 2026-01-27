@@ -44,12 +44,12 @@ def ingest_cmd(
 
         contexts_root = get_contexts_root()
         ctx = load_context(context, contexts_root)
-        stats = ingest_context(ctx, ollama_host_override=ollama_host)
+        result = ingest_context(ctx, ollama_host_override=ollama_host)
 
         typer.secho(f"Ingestion complete for context '{context}':", fg=typer.colors.GREEN)
-        typer.echo(f"  Documents: {stats['documents']}")
-        typer.echo(f"  Chunks: {stats['chunks']}")
-        typer.echo(f"  Skipped: {stats['skipped']}")
+        typer.echo(f"  Documents: {result.stats['documents']}")
+        typer.echo(f"  Chunks: {result.stats['chunks']}")
+        typer.echo(f"  Skipped: {result.stats['skipped']}")
     else:
         # Old config-based ingestion (deprecated)
         typer.secho("Warning: --config is deprecated. Use --context instead.", fg=typer.colors.YELLOW)

@@ -266,7 +266,7 @@ def _ingest_chat(source: SourceConfig, storage: Storage, embedder: OllamaEmbedde
         stats["chunks"] += len(chunks)
 
 
-def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = None) -> dict:
+def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = None) -> IngestRunResult:
     """
     Ingest all sources from a context.
 
@@ -274,6 +274,9 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
     Applies context.weights for source-type prioritization.
     Uses fingerprinting for incremental ingest.
     """
+    import uuid
+    from datetime import timezone
+
     db_path = ctx.index.sqlite_path
     chroma_dir = ctx.index.chroma_dir
 
@@ -294,9 +297,24 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
             embedder = OllamaEmbedder(ollama_host, embedding_model, fallback_host=fallback_host)
             vectors = VectorStore(chroma_dir)
 
+            # Track results for IngestRunResult
+            run_id = f"run_{uuid.uuid4().hex[:8]}"
+            started_at = datetime.now(timezone.utc)
+            new_doc_ids: list[str] = []
+            updated_doc_ids: list[str] = []
+            new_chunk_ids: list[str] = []
+            skipped_doc_ids: list[str] = []
+            error_doc_ids: list[str] = []
             stats = {"documents": 0, "chunks": 0, "skipped": 0}
-            started_at = now_iso()
-            run_id = sha256_text(started_at)
+
+            # Create tracking dict to pass to helper functions
+            tracking = {
+                "new_doc_ids": new_doc_ids,
+                "updated_doc_ids": updated_doc_ids,
+                "new_chunk_ids": new_chunk_ids,
+                "skipped_doc_ids": skipped_doc_ids,
+                "error_doc_ids": error_doc_ids,
+            }
 
             # Ingest repos
             for repo_path in ctx.includes.repos:
@@ -304,7 +322,7 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
                     print(f"Warning: repo path {repo_path} does not exist, skipping.")
                     continue
                 _ingest_repo_from_context(
-                    ctx, repo_path, storage, embedder, vectors, stats
+                    ctx, repo_path, storage, embedder, vectors, stats, tracking
                 )
 
             # Ingest chat roots
@@ -313,7 +331,7 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
                     print(f"Warning: chat_root {chat_root} does not exist, skipping.")
                     continue
                 _ingest_chat_from_context(
-                    ctx, chat_root, storage, embedder, vectors, stats
+                    ctx, chat_root, storage, embedder, vectors, stats, tracking
                 )
 
             # Ingest Codex sessions
@@ -322,14 +340,27 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
             if ctx.includes.codex_session_roots:
                 appserver_url = os.getenv("CHINVEX_APPSERVER_URL", "http://localhost:8080")
                 _ingest_codex_sessions_from_context(
-                    ctx, appserver_url, storage, embedder, vectors, stats
+                    ctx, appserver_url, storage, embedder, vectors, stats, tracking
                 )
 
             # TODO: Ingest note_roots (post-P0)
 
-            storage.record_run(run_id, started_at, dump_json(stats))
+            finished_at = datetime.now(timezone.utc)
+            storage.record_run(run_id, now_iso(), dump_json(stats))
             storage.close()
-            return stats
+
+            return IngestRunResult(
+                run_id=run_id,
+                context=ctx.name,
+                started_at=started_at,
+                finished_at=finished_at,
+                new_doc_ids=new_doc_ids,
+                updated_doc_ids=updated_doc_ids,
+                new_chunk_ids=new_chunk_ids,
+                skipped_doc_ids=skipped_doc_ids,
+                error_doc_ids=error_doc_ids,
+                stats=stats
+            )
     except LockException as exc:
         raise RuntimeError(
             "Ingest lock is held by another process. Only one ingest can run at a time."
@@ -343,6 +374,7 @@ def _ingest_repo_from_context(
     embedder: OllamaEmbedder,
     vectors: VectorStore,
     stats: dict,
+    tracking: dict,
 ) -> None:
     """Ingest a single repo with fingerprinting."""
     for path in walk_files(repo_path):
@@ -358,7 +390,11 @@ def _ingest_repo_from_context(
         fp = storage.get_fingerprint(normalized_path(path), ctx.name)
         if fp and fp["content_sha256"] == content_hash and fp["mtime_unix"] == int(path.stat().st_mtime):
             stats["skipped"] += 1
+            tracking["skipped_doc_ids"].append(doc_id)
             continue
+
+        # Track if this is new or updated
+        is_new_doc = fp is None
 
         # Delete old chunks
         chunk_ids = storage.delete_chunks_for_doc(doc_id) if fp else []
@@ -448,6 +484,13 @@ def _ingest_repo_from_context(
             last_error=None,
         )
 
+        # Track document and chunk IDs
+        if is_new_doc:
+            tracking["new_doc_ids"].append(doc_id)
+        else:
+            tracking["updated_doc_ids"].append(doc_id)
+        tracking["new_chunk_ids"].extend(ids)
+
         stats["documents"] += 1
         stats["chunks"] += len(chunks)
 
@@ -459,6 +502,7 @@ def _ingest_chat_from_context(
     embedder: OllamaEmbedder,
     vectors: VectorStore,
     stats: dict,
+    tracking: dict,
 ) -> None:
     """Ingest chat exports from a root directory with fingerprinting."""
     for path in Path(chat_root).glob("*.json"):
@@ -597,6 +641,7 @@ def _ingest_codex_sessions_from_context(
     embedder: OllamaEmbedder,
     vectors: VectorStore,
     stats: dict,
+    tracking: dict,
 ) -> None:
     """
     Ingest Codex sessions from app-server with fingerprinting.
