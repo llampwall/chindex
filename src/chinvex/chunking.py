@@ -178,3 +178,39 @@ def chunk_conversation(conversation: dict, max_tokens: int = MAX_CONVERSATION_TO
     flush_group()
 
     return chunks
+
+
+def chunk_with_overlap(text: str, size: int = 3000, overlap: int = 300) -> list[tuple[int, int]]:
+    """
+    Return list of (start, end) positions for chunks with overlap.
+
+    Generic fallback for prose and unknown file types.
+    """
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(start + size, len(text))
+        chunks.append((start, end))
+        if end >= len(text):
+            break
+        start = end - overlap
+    return chunks
+
+
+def chunk_generic_file(text: str, size: int = 3000, overlap: int = 300) -> list[Chunk]:
+    """
+    Chunk generic text file with overlap.
+
+    Used for: txt, unknown extensions, prose files.
+    """
+    positions = chunk_with_overlap(text, size, overlap)
+    chunks = []
+    for ordinal, (start, end) in enumerate(positions):
+        chunk_text = text[start:end]
+        chunks.append(Chunk(
+            text=chunk_text,
+            ordinal=ordinal,
+            char_start=start,
+            char_end=end,
+        ))
+    return chunks
