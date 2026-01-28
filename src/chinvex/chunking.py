@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass
 from math import ceil
@@ -309,5 +310,105 @@ def chunk_markdown_file(text: str, size: int = 3000, overlap: int = 300) -> list
         # Next chunk starts at the boundary (no overlap for markdown)
         # This ensures clean splits at headers
         start = split_pos
+
+    return chunks
+
+
+def extract_python_boundaries(text: str) -> list[int]:
+    """
+    Extract character positions where top-level definitions start.
+
+    Boundary rules:
+    - Decorators stay with their function/class
+    - Module docstrings are separate
+    - Only top-level definitions (nested excluded)
+
+    Returns list of character positions sorted ascending.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        # Invalid Python, return empty
+        return []
+
+    boundaries = []
+    lines = text.splitlines(keepends=True)
+
+    # Calculate character positions for each line
+    line_positions = [0]
+    for line in lines:
+        line_positions.append(line_positions[-1] + len(line))
+
+    # Only iterate top-level nodes from module body
+    if hasattr(tree, 'body'):
+        for node in tree.body:
+            # Top-level function or class definitions
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if hasattr(node, 'lineno') and node.lineno > 0:
+                    # Get decorator positions if any
+                    if node.decorator_list:
+                        first_decorator = node.decorator_list[0]
+                        if hasattr(first_decorator, 'lineno') and first_decorator.lineno > 0:
+                            char_pos = line_positions[first_decorator.lineno - 1]
+                            boundaries.append(char_pos)
+                    else:
+                        char_pos = line_positions[node.lineno - 1]
+                        boundaries.append(char_pos)
+
+    return sorted(set(boundaries))
+
+
+def chunk_python_file(text: str, max_chars: int = 3000) -> list[Chunk]:
+    """
+    Chunk Python file at function/class boundaries using AST.
+
+    Falls back to generic chunking if AST parsing fails.
+    """
+    boundaries = extract_python_boundaries(text)
+
+    if not boundaries:
+        # Fallback to generic chunking
+        return chunk_generic_file(text, size=max_chars)
+
+    # Always start with position 0
+    if boundaries[0] != 0:
+        boundaries = [0] + boundaries
+
+    chunks = []
+    ordinal = 0
+    i = 0
+
+    while i < len(boundaries):
+        start = boundaries[i]
+        # Find the last boundary that keeps chunk < max_chars
+        j = i + 1
+        while j < len(boundaries) and boundaries[j] - start < max_chars:
+            j += 1
+        # j now points to first boundary that would exceed max_chars, or past end
+        # Use j-1 as the end boundary (or end of text)
+        if j - 1 > i:
+            # Multiple boundaries fit in max_chars, use the last one
+            end = boundaries[j - 1]
+            i = j - 1
+        elif j < len(boundaries):
+            # Next boundary exceeds max_chars, include it anyway to avoid tiny chunks
+            end = boundaries[j]
+            i = j
+        else:
+            # No more boundaries
+            end = len(text)
+            i = len(boundaries)
+
+        chunk_text = text[start:end]
+        chunks.append(Chunk(
+            text=chunk_text,
+            ordinal=ordinal,
+            char_start=start,
+            char_end=end,
+        ))
+        ordinal += 1
+
+    if not chunks:
+        chunks.append(Chunk(text=text, ordinal=0, char_start=0, char_end=len(text)))
 
     return chunks

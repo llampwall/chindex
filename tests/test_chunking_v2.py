@@ -1,6 +1,6 @@
 """Test chunking v2 improvements."""
 import pytest
-from chinvex.chunking import chunk_with_overlap, chunk_generic_file, find_best_split, chunk_markdown_file
+from chinvex.chunking import chunk_with_overlap, chunk_generic_file, find_best_split, chunk_markdown_file, extract_python_boundaries, chunk_python_file
 
 
 def test_chunk_with_overlap_basic():
@@ -96,3 +96,66 @@ Some intro text.
             chunk_text = text[chunk.char_start:chunk.char_end]
             # Should start with newline or header
             assert chunk_text.startswith(("\n", "#", "##"))
+
+
+def test_extract_python_boundaries():
+    """Test Python AST boundary extraction."""
+    text = '''"""Module docstring."""
+
+def function_one():
+    return 1
+
+class MyClass:
+    def method(self):
+        pass
+
+@decorator
+def function_two():
+    return 2
+
+if __name__ == "__main__":
+    main()
+'''
+
+    boundaries = extract_python_boundaries(text)
+
+    # Expected: boundaries at function/class definitions
+    assert len(boundaries) >= 3  # function_one, MyClass, function_two, __main__
+    # First boundary should be after docstring
+    assert boundaries[0] > 20  # After module docstring
+
+
+def test_chunk_python_file_respects_functions():
+    """Test that Python files chunk at function boundaries."""
+    # Create Python file with multiple functions
+    functions = []
+    for i in range(10):
+        functions.append(f'''
+def function_{i}():
+    """Function {i} docstring."""
+    # Implementation
+    {f"x{i} = {i}; " * 50}
+    return {i}
+''')
+
+    text = "\n".join(functions)
+    chunks = chunk_python_file(text, max_chars=3000)
+
+    # Verify multiple chunks created
+    assert len(chunks) >= 2
+
+    # Verify each chunk starts at a function boundary (or start of file)
+    for chunk in chunks:
+        if chunk.ordinal > 0:
+            chunk_text = text[chunk.char_start:chunk.char_end]
+            # Should start with 'def ' or at file start
+            assert chunk_text.lstrip().startswith("def ") or chunk.char_start == 0
+
+
+def test_chunk_python_file_handles_syntax_errors():
+    """Test that invalid Python falls back to generic."""
+    text = "def broken(\n  # Missing closing paren"
+    chunks = chunk_python_file(text)
+
+    # Should not crash, should return chunks
+    assert len(chunks) >= 1
