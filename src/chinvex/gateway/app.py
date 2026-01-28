@@ -15,6 +15,7 @@ from . import __version__
 from .auth import verify_token
 from .rate_limit import RateLimiter
 from .audit import AuditLogger
+from .error_log import RotatingErrorLogger
 from .config import load_gateway_config
 from .endpoints import health, healthz, search, evidence, chunks, contexts
 
@@ -37,6 +38,7 @@ rate_limiter = RateLimiter({
     'requests_per_hour': config.rate_limit.requests_per_hour
 })
 audit_logger = AuditLogger(config.audit_log_path)
+error_logger = RotatingErrorLogger("P:/ai_memory/gateway_errors.jsonl", max_size_mb=50, max_files=5)
 
 # CORS middleware
 app.add_middleware(
@@ -83,27 +85,20 @@ async def global_exception_handler(request: Request, exc: Exception):
     """Log stack traces for unhandled exceptions."""
     request_id = getattr(request.state, "request_id", "unknown")
 
-    # Log full stack trace
+    # Log full stack trace to console
     logger.error(
         f"Unhandled exception [request_id={request_id}] {request.method} {request.url.path}",
         exc_info=exc
     )
 
-    # Log to file as well (JSONL format)
-    error_log_path = Path("P:/ai_memory/gateway_errors.jsonl")
-    try:
-        import json
-        with open(error_log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "request_id": request_id,
-                "timestamp": time(),
-                "method": request.method,
-                "path": str(request.url.path),
-                "error": str(exc),
-                "traceback": traceback.format_exc()
-            }) + "\n")
-    except Exception as log_error:
-        logger.error(f"Failed to write error log: {log_error}")
+    # Log to rotating file
+    error_logger.log(
+        request_id=request_id,
+        method=request.method,
+        path=str(request.url.path),
+        error=exc,
+        timestamp=time()
+    )
 
     return JSONResponse(
         status_code=500,
@@ -153,9 +148,9 @@ async def startup_warmup():
         logger.error(f"Warmup failed (non-fatal): {e}", exc_info=True)
 
 
-# Routers - health and healthz endpoints have no auth
+# Routers - health endpoint is public, healthz requires auth
 app.include_router(health.router, tags=["Health"])
-app.include_router(healthz.router, tags=["Health"])
+app.include_router(healthz.router, tags=["Health"], dependencies=[Depends(verify_token)])
 
 # Protected routers with auth + rate limiting
 app.include_router(

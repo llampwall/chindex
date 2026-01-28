@@ -1,0 +1,29 @@
+feat(gateway): add error log rotation, auth-protect /healthz, redact details
+
+Implemented three production hardening improvements:
+
+1. Error Log Rotation
+   - Created RotatingErrorLogger with size-based rotation
+   - Max 50MB per file, keeps last 5 rotated files
+   - Prevents disk DOS from unbounded log growth
+   - Pattern: gateway_errors.jsonl -> gateway_errors.1.jsonl -> ...
+   - Automatic rotation when file exceeds limit
+
+2. /healthz Auth Protection
+   - Require bearer token authentication for /healthz
+   - Redact sensitive details from response (no counts, no error messages)
+   - Returns only "ok" or "error" status for each component
+   - Prevents intel leakage about contexts, versions, or paths
+
+3. Request Logging (Already Done)
+   - Audit logger already captures: request_id, path, status, latency_ms,
+     context, query_hash (not raw query)
+   - Logs written to P:/ai_memory/gateway_audit.jsonl
+   - Privacy-preserving with SHA256 query hashing
+
+Files changed:
+- src/chinvex/gateway/error_log.py (new): Rotating error logger
+- src/chinvex/gateway/app.py: Use rotating logger, add auth to /healthz
+- src/chinvex/gateway/endpoints/healthz.py: Redact details, require auth
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>

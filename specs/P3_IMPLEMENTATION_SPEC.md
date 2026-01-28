@@ -1,7 +1,7 @@
 # Chinvex P3 Implementation Spec
 
-**Version:** 1.0  
-**Date:** 2026-01-27  
+**Version:** 1.1  
+**Date:** 2026-01-28  
 **Status:** Draft — for future reference  
 **Depends on:** P2 complete
 
@@ -11,13 +11,22 @@
 
 P3 is the "quality of life" release. P2 got ChatGPT connected. P3 makes everything work better: smarter chunking, proactive alerts, search across all your stuff, and fading old content gracefully.
 
-### P3 Scope
+### Completed Early (in P2)
+
+The following P3 items were shipped as part of P2 hardening:
+
+- ✅ **Request ID tracking** — All responses include `X-Request-ID` header for correlation
+- ✅ **Deep health check** — `GET /healthz` checks SQLite, Chroma, and context registry readiness (returns 503 if degraded)
+- ✅ **Error logging** — Global exception handler logs stack traces to `P:\ai_memory\gateway_errors.jsonl` with request_id
+- ✅ **Startup warmup** — Gateway preloads context registry and initializes SQLite/Chroma on startup (prevents cold-start 500s)
+
+### P3 Scope (Remaining)
 
 1. **P3.1** Chunking strategy improvements (overlap, semantic boundaries, code-aware)
 2. **P3.2** Watch history + webhook notifications
 3. **P3.3** Cross-context search
 4. **P3.4** Archive tier for old content
-5. **P3.5** Gateway improvements (Redis rate limiting, metrics)
+5. **P3.5** Gateway improvements (Redis rate limiting, Prometheus metrics)
 
 ### Non-Goals (P4+)
 
@@ -666,7 +675,7 @@ P2 uses in-memory rate limiting (resets on restart). P3 adds Redis for persisten
 
 **Fallback:** If Redis unavailable, fall back to in-memory with warning.
 
-### 5.2 Metrics Endpoint
+### 5.2 Prometheus Metrics Endpoint
 
 ```
 GET /metrics
@@ -702,34 +711,9 @@ chinvex_grounded_ratio 0.73
 }
 ```
 
-### 5.3 Request Logging Improvements
+### ~~5.3 Request ID Tracking~~ ✅ Completed in P2
 
-Add request ID header for tracing:
-
-```
-X-Request-ID: abc123-def456
-```
-
-If client provides `X-Request-ID`, use it. Otherwise generate UUID.
-
-Include in all responses and audit log.
-
-### 5.4 Health Check Improvements
-
-```json
-// GET /health?detailed=true
-{
-  "status": "ok",
-  "version": "0.3.0",
-  "uptime_seconds": 86400,
-  "contexts": {
-    "Chinvex": {"status": "ok", "docs": 1542, "chunks": 8923},
-    "Personal": {"status": "ok", "docs": 234, "chunks": 1456}
-  },
-  "ollama": {"status": "ok", "model": "mxbai-embed-large"},
-  "rate_limit_backend": "redis"
-}
-```
+### ~~5.4 Deep Health Check~~ ✅ Completed in P2
 
 ### Acceptance Tests
 
@@ -740,14 +724,6 @@ Include in all responses and audit log.
 # Test 3.5.2: Metrics endpoint
 curl http://localhost:7778/metrics
 # Expected: Prometheus-format metrics
-
-# Test 3.5.3: Request ID propagation
-curl -H "X-Request-ID: test123" .../v1/search
-# Expected: Response includes X-Request-ID: test123
-
-# Test 3.5.4: Detailed health check
-curl .../health?detailed=true
-# Expected: Per-context status, Ollama status
 ```
 
 ---
@@ -883,8 +859,8 @@ prometheus-client>=0.19.0  # For metrics (optional)
 | 3.4.5 | Purge | Very old docs permanently removed |
 | 3.5.1 | Redis rate limit | Persists across restart |
 | 3.5.2 | Metrics endpoint | Prometheus format returned |
-| 3.5.3 | Request ID | Propagated through request/response |
-| 3.5.4 | Detailed health | Per-context and Ollama status |
+| ~~3.5.3~~ | ~~Request ID~~ | ✅ Completed in P2 |
+| ~~3.5.4~~ | ~~Detailed health~~ | ✅ Completed in P2 |
 
 ---
 

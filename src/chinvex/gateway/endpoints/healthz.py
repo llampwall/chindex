@@ -20,9 +20,10 @@ class HealthzResponse(BaseModel):
 async def healthz():
     """
     Deep health check - verifies DB and Chroma readiness.
+    Requires authentication (enforced at router level).
 
     Returns:
-        Status with individual check results
+        Status with individual check results (redacted for security)
     """
     checks = {}
     all_ok = True
@@ -31,15 +32,9 @@ async def healthz():
     try:
         contexts_root = get_contexts_root()
         contexts = list_contexts(contexts_root)
-        checks["context_registry"] = {
-            "status": "ok",
-            "count": len(contexts)
-        }
-    except Exception as e:
-        checks["context_registry"] = {
-            "status": "error",
-            "error": str(e)
-        }
+        checks["context_registry"] = {"status": "ok"}
+    except Exception:
+        checks["context_registry"] = {"status": "error"}
         all_ok = False
 
     # Check SQLite readiness (try to load a context)
@@ -53,12 +48,9 @@ async def healthz():
             storage._execute("SELECT 1")
             checks["sqlite"] = {"status": "ok"}
         else:
-            checks["sqlite"] = {"status": "skip", "reason": "no contexts"}
-    except Exception as e:
-        checks["sqlite"] = {
-            "status": "error",
-            "error": str(e)
-        }
+            checks["sqlite"] = {"status": "skip"}
+    except Exception:
+        checks["sqlite"] = {"status": "error"}
         all_ok = False
 
     # Check Chroma readiness
@@ -74,12 +66,9 @@ async def healthz():
             vec_store.collection.count()
             checks["chroma"] = {"status": "ok"}
         else:
-            checks["chroma"] = {"status": "skip", "reason": "no contexts"}
-    except Exception as e:
-        checks["chroma"] = {
-            "status": "error",
-            "error": str(e)
-        }
+            checks["chroma"] = {"status": "skip"}
+    except Exception:
+        checks["chroma"] = {"status": "error"}
         all_ok = False
 
     if not all_ok:
