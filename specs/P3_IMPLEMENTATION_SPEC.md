@@ -1,6 +1,6 @@
 # Chinvex P3 Implementation Spec
 
-**Version:** 1.1  
+**Version:** 1.3  
 **Date:** 2026-01-28  
 **Status:** Draft — for future reference  
 **Depends on:** P2 complete
@@ -20,13 +20,21 @@ The following P3 items were shipped as part of P2 hardening:
 - ✅ **Error logging** — Global exception handler logs stack traces to `P:\ai_memory\gateway_errors.jsonl` with request_id
 - ✅ **Startup warmup** — Gateway preloads context registry and initializes SQLite/Chroma on startup (prevents cold-start 500s)
 
-### P3 Scope (Remaining)
+### P3 Phased Approach
 
-1. **P3.1** Chunking strategy improvements (overlap, semantic boundaries, code-aware)
-2. **P3.2** Watch history + webhook notifications
-3. **P3.3** Cross-context search
-4. **P3.4** Archive tier for old content
-5. **P3.5** Gateway improvements (Redis rate limiting, Prometheus metrics)
+Split into sub-releases for incremental delivery:
+
+**P3a — Quality + Convenience** (highest leverage)
+1. **P3.1** Chunking v2 (overlap, semantic boundaries, Python code-aware)
+2. **P3.3** Cross-context search
+
+**P3b — Proactive Foundation** (no network complexity)
+3. **P3.2** Watch history log + CLI (webhooks deferred)
+
+**P3c — Policy + Ops** (lower priority)
+4. **P3.4** Archive tier
+5. **P3.2b** Webhook notifications
+6. **P3.5** Gateway extras (Redis rate limiting, Prometheus metrics)
 
 ### Non-Goals (P4+)
 
@@ -53,6 +61,18 @@ The following P3 items were shipped as part of P2 hardening:
 1. Hard splits break context — function split mid-body
 2. No preference for natural boundaries
 3. Code-unaware — doesn't respect function/class structure
+
+### P3.1 Scope
+
+**In scope:**
+- Overlap for all sources
+- Semantic boundary detection (markdown headers, blank lines)
+- Python code-aware splitting (AST-based)
+- JS/TS heuristic splitting (regex for function/class/export — NOT full parsing)
+
+**Out of scope (future):**
+- True JS/TS code-aware splitting with tree-sitter/babel
+- Other languages
 
 ### Improved Strategy
 
@@ -92,20 +112,22 @@ SPLIT_PRIORITIES = [
     (r'\nclass ', 80),         # Python class
     (r'\ndef ', 75),           # Python function
     (r'\nasync def ', 75),     # Python async function
-    (r'\nfunction ', 75),      # JS function
-    (r'\nconst \w+ = ', 70),   # JS const declaration
-    (r'\nexport ', 70),        # JS/TS export
+    (r'\nfunction ', 75),      # JS function (heuristic)
+    (r'\nconst \w+ = ', 70),   # JS const declaration (heuristic)
+    (r'\nexport ', 70),        # JS/TS export (heuristic)
     (r'\n\n\n', 60),           # Multiple blank lines
     (r'\n\n', 50),             # Paragraph break
     (r'\n', 10),               # Line break (last resort)
 ]
 
-def find_best_split(text: str, target_pos: int, window: int = 300) -> int:
+def find_best_split(text: str, target_pos: int, size: int = 3000) -> int:
     """
     Find best split point near target_pos.
     Searches within ±window chars for highest-priority boundary.
+    Window is proportional to chunk size to handle large code blocks.
     Returns position of the boundary (start of the pattern match).
     """
+    window = min(800, max(300, size // 10))  # Proportional window
     search_start = max(0, target_pos - window)
     search_end = min(len(text), target_pos + window)
     search_region = text[search_start:search_end]
@@ -150,37 +172,45 @@ def line_to_char_pos(text: str, line_num: int) -> int:
     """Convert line number to character position."""
     lines = text.split('\n')
     return sum(len(line) + 1 for line in lines[:line_num])
+```
 
-def chunk_python_file(text: str) -> list[Chunk]:
+**Chunking algorithm (clarified):**
+
+Boundaries define where chunks *can* start. We accumulate text until near `max_chars`, then flush at the most recent boundary.
+
+```python
+def chunk_python_file(text: str, max_chars: int = 3000) -> list[Chunk]:
     """
     Split Python file respecting function/class boundaries.
+    
+    Algorithm:
+    1. Get boundary positions (where functions/classes start)
+    2. Walk through boundaries, accumulating segments
+    3. When accumulated size exceeds max_chars, flush previous chunk
+    4. Each chunk starts at a boundary position
     """
     boundaries = extract_python_boundaries(text)
-    boundary_positions = [line_to_char_pos(text, ln) for ln in boundaries]
+    boundary_positions = [0] + [line_to_char_pos(text, ln) for ln in boundaries] + [len(text)]
     
-    if not boundary_positions:
-        # Fallback to generic chunking
+    if len(boundary_positions) <= 2:
+        # No internal boundaries, fallback to generic
         return chunk_with_overlap_and_boundaries(text)
     
     chunks = []
-    current_start = 0
-    current_text = ""
+    chunk_start = 0
     
-    for pos in boundary_positions:
-        segment = text[current_start:pos]
+    for i, pos in enumerate(boundary_positions[1:], 1):
+        segment_size = pos - chunk_start
         
-        if len(current_text) + len(segment) > CHUNK_SIZE:
-            # Flush current chunk
-            if current_text:
-                chunks.append(make_chunk(current_text, current_start))
-            current_text = segment
-            current_start = pos - len(segment)
-        else:
-            current_text += segment
-            
-    # Don't forget the last chunk
-    if current_text:
-        chunks.append(make_chunk(current_text, current_start))
+        if segment_size > max_chars and chunk_start != boundary_positions[i-1]:
+            # Flush chunk ending at previous boundary
+            chunk_end = boundary_positions[i-1]
+            chunks.append(make_chunk(text[chunk_start:chunk_end], chunk_start))
+            chunk_start = chunk_end
+    
+    # Final chunk
+    if chunk_start < len(text):
+        chunks.append(make_chunk(text[chunk_start:], chunk_start))
     
     return chunks
 ```
@@ -224,6 +254,7 @@ def chunk_file(text: str, filepath: str) -> list[Chunk]:
 {
   "chunking": {
     "max_chars": 3000,
+    "max_lines": 300,  // For code: whichever limit hits first
     "overlap_chars": 300,
     "semantic_boundaries": true,
     "code_aware": true,
@@ -232,6 +263,8 @@ def chunk_file(text: str, filepath: str) -> list[Chunk]:
 }
 ```
 
+**Note on units:** For prose (markdown, docs), `max_chars` is the primary limit. For code, use whichever of `max_chars` or `max_lines` is reached first — this handles both minified code (char-heavy) and verbose code (line-heavy).
+
 ### Migration
 
 Bump `chunker_version` in fingerprints. On next ingest, files will be re-chunked automatically.
@@ -239,6 +272,41 @@ Bump `chunker_version` in fingerprints. On next ingest, files will be re-chunked
 ```python
 CHUNKER_VERSION = 2  # Was 1 in P0-P2
 ```
+
+#### Rechunk-Only Mode
+
+To avoid re-embedding unchanged text, add `--rechunk-only` flag:
+
+```bash
+# Full reingest (rechunk + re-embed)
+chinvex ingest --context Chinvex --full
+
+# Rechunk only (reuse embeddings if text hash unchanged)
+chinvex ingest --context Chinvex --rechunk-only
+```
+
+**Implementation:**
+
+Use a stable per-chunk key for embedding reuse:
+
+```python
+import hashlib
+
+def chunk_key(text: str) -> str:
+    """Stable key for embedding lookup. Normalize whitespace first."""
+    normalized = ' '.join(text.split())  # Collapse whitespace
+    return hashlib.sha256(normalized.encode()).hexdigest()[:16]
+```
+
+**Rechunk flow:**
+1. Run new chunker on source file
+2. For each new chunk, compute `chunk_key(text)`
+3. Check Chroma for existing embedding with that key
+4. If found and text hash matches, reuse embedding
+5. If not found or hash mismatch, generate new embedding
+6. Log stats: `Rechunked: 142, Reused embeddings: 98, New embeddings: 44`
+
+This prevents "why is my machine melting?" on large contexts.
 
 ### Acceptance Tests
 
@@ -312,7 +380,7 @@ Fire HTTP POST when watch triggers.
 ```json
 {
   "notifications": {
-    "enabled": true,
+    "enabled": false,  // OFF by default for safety
     "webhook_url": "https://your-webhook.example.com/chinvex",
     "webhook_secret": "env:CHINVEX_WEBHOOK_SECRET",
     "notify_on": ["watch_hit"],
@@ -344,6 +412,9 @@ Fire HTTP POST when watch triggers.
   ],
   "signature": "sha256=..."
 }
+```
+
+**Security note:** Webhook payload includes snippet (first 200 chars) and source_uri, but NEVER full chunk text. This prevents accidental data leakage via webhook logs.
 ```
 
 **Signature verification:**
@@ -462,11 +533,17 @@ def search_multi_context(
     if contexts == "all":
         contexts = list_all_contexts()
     
+    # Cap contexts to prevent slowdown
+    contexts = contexts[:config.cross_context.max_contexts_per_query]
+    
+    # Per-context cap: don't fetch more than needed
+    k_per_context = min(k, 20)
+    
     # Gather results from each context
     all_results = []
     for ctx_name in contexts:
         ctx = load_context(ctx_name)
-        results = search_context(ctx, query, k=k)  # Get k from each
+        results = search_context(ctx, query, k=k_per_context)
         for r in results:
             r.context = ctx_name  # Tag with source context
         all_results.extend(results)
@@ -483,6 +560,7 @@ def search_multi_context(
   "cross_context": {
     "enabled": true,
     "max_contexts_per_query": 10,
+    "k_per_context": 20,
     "default_contexts": ["Chinvex", "Personal"]  // for "all" shorthand
   }
 }
@@ -493,6 +571,25 @@ def search_multi_context(
 Cross-context search respects allowlist:
 - If `context_allowlist` is set, `"all"` means "all allowed contexts"
 - Cannot search contexts not in allowlist
+
+### Score Comparability
+
+**Note:** Merging by raw `score` assumes scores are comparable across contexts. Chinvex normalizes scores to 0–1 per-query per-index, so this is *mostly* safe. However, if you observe ranking anomalies:
+
+```python
+# Optional: re-normalize after merge if scores aren't comparable
+def normalize_merged_scores(results: list[SearchResult]) -> list[SearchResult]:
+    if not results:
+        return results
+    max_score = max(r.score for r in results)
+    min_score = min(r.score for r in results)
+    range_score = max_score - min_score or 1.0
+    for r in results:
+        r.score = (r.score - min_score) / range_score
+    return results
+```
+
+For P3, assume scores are comparable. Add re-normalization only if testing reveals issues.
 
 ### Acceptance Tests
 
@@ -539,6 +636,18 @@ Old content clutters search results. Archive tier moves stale content out of def
 └─────────────────┘
 ```
 
+### Archive vs Recency Decay Interaction
+
+**Precedence rules:**
+1. Default search excludes archived docs entirely (hard filter)
+2. Recency decay applies only within active (non-archived) docs
+3. `--include-archive` reintroduces archived docs with a score penalty (e.g., 0.8x multiplier)
+
+This means:
+- Very old docs (>180d) get archived → completely out of default results
+- Moderately old active docs (30-180d) → still searchable, but recency-decayed
+- `--include-archive` brings back archived docs, but they rank lower than equally-relevant active docs
+
 ### Implementation: Flag-Based
 
 Add `archived` column to documents table (simpler than separate indexes):
@@ -557,8 +666,14 @@ def search_context(ctx, query, k=10, include_archive=False):
     if not include_archive:
         # Filter out archived docs at the SQL level
         where_clause += " AND d.archived = 0"
+    else:
+        # Apply archive penalty to scores
+        for result in results:
+            if result.archived:
+                result.score *= 0.8  # Archive penalty
     
     # ... rest of search ...
+```
 ```
 
 ### Configuration
@@ -572,6 +687,23 @@ def search_context(ctx, query, k=10, include_archive=False):
   }
 }
 ```
+
+### Archive Timestamp Source
+
+**Which clock determines "age"?**
+
+- **Repo files:** Use `updated_at` (file mtime from source)
+- **Chat threads:** Use `updated_at` (last message timestamp)
+- **Codex sessions:** Use `updated_at` (session end time)
+- **Fallback:** If `updated_at` is missing, use `ingested_at`
+
+```python
+def get_doc_age_timestamp(doc: Document) -> datetime:
+    """Get the timestamp used for archive age calculation."""
+    return doc.updated_at or doc.ingested_at
+```
+
+This ensures archive reflects *content* age, not just when you happened to ingest it.
 
 ### CLI Commands
 
@@ -730,45 +862,56 @@ curl http://localhost:7778/metrics
 
 ## 6. Implementation Order
 
-### Phase 1: Chunking (P3.1) — 2-3 days
+Matches P3a/P3b/P3c phasing from overview.
+
+### P3a: Quality + Convenience
+
+#### Phase 1: Chunking (P3.1) — 2-3 days
 1. Overlap implementation
-2. Semantic boundary detection
-3. Python code-aware splitting
-4. JS/TS code-aware splitting
+2. Semantic boundary detection (proportional window)
+3. Python code-aware splitting (AST-based)
+4. JS/TS heuristic splitting (regex only)
 5. Markdown-aware splitting
 6. Language detection
-7. Bump chunker_version
-8. Re-index test
+7. Rechunk-only mode with stable chunk keys
+8. Bump chunker_version
+9. Re-index test + stats logging
 
-### Phase 2: Watch History (P3.2) — 1-2 days
-9. watch_history.jsonl append on trigger
-10. `chinvex watch history` CLI
-11. History filtering (--since, --id)
-12. Webhook notification implementation
-13. Webhook signature generation
-14. Retry logic
+#### Phase 2: Cross-Context Search (P3.3) — 1-2 days
+10. Multi-context search logic
+11. Result merging by score (with per-context caps)
+12. CLI --all / --contexts flags
+13. API multi-context support
+14. Allowlist enforcement
 
-### Phase 3: Cross-Context Search (P3.3) — 1-2 days
-15. Multi-context search logic
-16. Result merging by score
-17. CLI --all / --contexts flags
-18. API multi-context support
-19. Allowlist enforcement
+### P3b: Proactive Foundation
 
-### Phase 4: Archive Tier (P3.4) — 2 days
-20. Add archived column to schema
-21. Archive run command
-22. Search filtering
-23. Archive list command
-24. Restore command
-25. Auto-archive on ingest
-26. Purge command
+#### Phase 3: Watch History (P3.2 — log only) — 1 day
+15. watch_history.jsonl append on trigger
+16. `chinvex watch history` CLI
+17. History filtering (--since, --id)
 
-### Phase 5: Gateway Improvements (P3.5) — 1-2 days
-27. Redis rate limiting
-28. Metrics endpoint
-29. Request ID handling
-30. Detailed health check
+### P3c: Policy + Ops
+
+#### Phase 4: Archive Tier (P3.4) — 2 days
+18. Add archived column to schema
+19. Archive timestamp source logic (updated_at vs ingested_at)
+20. Archive run command
+21. Search filtering + archive penalty
+22. Archive list command
+23. Restore command
+24. Auto-archive on ingest
+25. Purge command
+
+#### Phase 5: Webhooks (P3.2b) — 1 day
+26. Webhook notification implementation
+27. Webhook signature generation
+28. Retry logic
+29. Security hardening (off by default, snippet only)
+
+#### Phase 6: Gateway Extras (P3.5) — 1-2 days
+30. Redis rate limiting
+31. Prometheus metrics endpoint
 
 ---
 
