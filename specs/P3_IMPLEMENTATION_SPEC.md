@@ -1,8 +1,8 @@
 # Chinvex P3 Implementation Spec
 
-**Version:** 1.3  
+**Version:** 1.5  
 **Date:** 2026-01-28  
-**Status:** Draft — for future reference  
+**Status:** Ready for implementation  
 **Depends on:** P2 complete
 
 ---
@@ -25,16 +25,17 @@ The following P3 items were shipped as part of P2 hardening:
 Split into sub-releases for incremental delivery:
 
 **P3a — Quality + Convenience** (highest leverage)
-1. **P3.1** Chunking v2 (overlap, semantic boundaries, Python code-aware)
-2. **P3.3** Cross-context search
+1. **P3.3** Cross-context search *(ship first — quick win, no re-index)*
+2. **P3.1** Chunking v2 (overlap, semantic boundaries, Python code-aware)
+3. **P3.1b** Rechunk optimization (embedding reuse) *(optional, after P3.1 works)*
 
 **P3b — Proactive Foundation** (no network complexity)
-3. **P3.2** Watch history log + CLI (webhooks deferred)
+4. **P3.2** Watch history log + CLI (webhooks deferred)
 
 **P3c — Policy + Ops** (lower priority)
-4. **P3.4** Archive tier
-5. **P3.2b** Webhook notifications
-6. **P3.5** Gateway extras (Redis rate limiting, Prometheus metrics)
+5. **P3.4** Archive tier
+6. **P3.2b** Webhook notifications
+7. **P3.5** Gateway extras (Redis rate limiting, Prometheus metrics)
 
 ### Non-Goals (P4+)
 
@@ -85,10 +86,29 @@ CHUNK_SIZE = 3000      # chars
 OVERLAP = 300          # chars (~10%)
 ```
 
+**Important: Overlap vs Semantic Boundaries**
+
+Overlap and semantic boundaries serve different purposes and have clear precedence:
+
+- **Semantic boundaries win.** If a function starts at char 2800, end chunk at 2800, start next chunk at 2800 (no overlap).
+- **Overlap is fallback.** Only applies to generic chunking (prose, unknown file types) where no semantic boundaries exist.
+
+```python
+# Generic chunking (markdown prose, txt files): USE overlap
+def chunk_generic(text): 
+    # chunks at 0-3000, 2700-5700, 5400-8400...
+    
+# Code-aware chunking (Python, JS): NO overlap, use boundaries
+def chunk_python(text):
+    # chunks at function boundaries, no artificial overlap
+```
+
+Rationale: Overlap exists to avoid losing context at arbitrary splits. Semantic boundaries *are* natural context breaks, so overlap would be redundant and could split logical units.
+
 **Implementation:**
 ```python
 def chunk_with_overlap(text: str, size: int = 3000, overlap: int = 300) -> list[tuple[int, int]]:
-    """Return list of (start, end) positions for chunks."""
+    """Return list of (start, end) positions for chunks. Generic fallback only."""
     chunks = []
     start = 0
     while start < len(text):
@@ -113,8 +133,13 @@ SPLIT_PRIORITIES = [
     (r'\ndef ', 75),           # Python function
     (r'\nasync def ', 75),     # Python async function
     (r'\nfunction ', 75),      # JS function (heuristic)
+    (r'\nasync function ', 75),# JS async function (heuristic)
+    (r'\nconst \w+ = \(', 72), # JS arrow function (heuristic)
+    (r'\nconst \w+ = async \(', 72),  # JS async arrow (heuristic)
     (r'\nconst \w+ = ', 70),   # JS const declaration (heuristic)
-    (r'\nexport ', 70),        # JS/TS export (heuristic)
+    (r'\nexport default ', 70),# JS/TS default export (heuristic)
+    (r'\nexport ', 68),        # JS/TS named export (heuristic)
+    (r'\nmodule\.exports', 68),# CommonJS export (heuristic)
     (r'\n\n\n', 60),           # Multiple blank lines
     (r'\n\n', 50),             # Paragraph break
     (r'\n', 10),               # Line break (last resort)
@@ -156,7 +181,15 @@ For code files, extract logical boundaries first:
 import ast
 
 def extract_python_boundaries(text: str) -> list[int]:
-    """Extract line numbers where top-level definitions start."""
+    """
+    Extract line numbers where top-level definitions start.
+    
+    Boundary rules:
+    - Decorators stay with their function/class (use decorator line, not def line)
+    - Module docstrings are separate (not included with first function)
+    - Only top-level definitions (nested functions/classes are NOT boundaries)
+    - if __name__ == "__main__": IS a boundary
+    """
     try:
         tree = ast.parse(text)
     except SyntaxError:
@@ -165,7 +198,15 @@ def extract_python_boundaries(text: str) -> list[int]:
     boundaries = []
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            boundaries.append(node.lineno - 1)  # 0-indexed
+            # Use decorator line if present, otherwise def/class line
+            start_line = node.decorator_list[0].lineno if node.decorator_list else node.lineno
+            boundaries.append(start_line - 1)  # 0-indexed
+        elif isinstance(node, ast.If):
+            # Check for if __name__ == "__main__":
+            if (isinstance(node.test, ast.Compare) and
+                isinstance(node.test.left, ast.Name) and
+                node.test.left.id == '__name__'):
+                boundaries.append(node.lineno - 1)
     return boundaries
 
 def line_to_char_pos(text: str, line_num: int) -> int:
@@ -186,7 +227,7 @@ def chunk_python_file(text: str, max_chars: int = 3000) -> list[Chunk]:
     Algorithm:
     1. Get boundary positions (where functions/classes start)
     2. Walk through boundaries, accumulating segments
-    3. When accumulated size exceeds max_chars, flush previous chunk
+    3. When accumulated size exceeds max_chars OR max_lines, flush previous chunk
     4. Each chunk starts at a boundary position
     """
     boundaries = extract_python_boundaries(text)
@@ -199,10 +240,13 @@ def chunk_python_file(text: str, max_chars: int = 3000) -> list[Chunk]:
     chunks = []
     chunk_start = 0
     
+    def exceeds_limits(start: int, end: int) -> bool:
+        """Check if segment exceeds either char or line limit."""
+        segment = text[start:end]
+        return len(segment) > max_chars or segment.count('\n') > max_lines
+    
     for i, pos in enumerate(boundary_positions[1:], 1):
-        segment_size = pos - chunk_start
-        
-        if segment_size > max_chars and chunk_start != boundary_positions[i-1]:
+        if exceeds_limits(chunk_start, pos) and chunk_start != boundary_positions[i-1]:
             # Flush chunk ending at previous boundary
             chunk_end = boundary_positions[i-1]
             chunks.append(make_chunk(text[chunk_start:chunk_end], chunk_start))
@@ -265,6 +309,8 @@ def chunk_file(text: str, filepath: str) -> list[Chunk]:
 
 **Note on units:** For prose (markdown, docs), `max_chars` is the primary limit. For code, use whichever of `max_chars` or `max_lines` is reached first — this handles both minified code (char-heavy) and verbose code (line-heavy).
 
+**Note on skip:** Files larger than `skip_files_larger_than_mb` are **not indexed** (completely skipped). A warning is logged: `"Skipping large file: {path} ({size}MB > {limit}MB)"`. This prevents memory issues with giant generated files.
+
 ### Migration
 
 Bump `chunker_version` in fingerprints. On next ingest, files will be re-chunked automatically.
@@ -301,10 +347,17 @@ def chunk_key(text: str) -> str:
 **Rechunk flow:**
 1. Run new chunker on source file
 2. For each new chunk, compute `chunk_key(text)`
-3. Check Chroma for existing embedding with that key
-4. If found and text hash matches, reuse embedding
+3. Check **SQLite chunks table** for existing chunk with that key
+4. If found and text hash matches, reuse embedding from Chroma (don't re-embed)
 5. If not found or hash mismatch, generate new embedding
 6. Log stats: `Rechunked: 142, Reused embeddings: 98, New embeddings: 44`
+7. Update fingerprint with `embedding_reused_count` for tracking
+
+**Schema addition for chunk_key:**
+```sql
+ALTER TABLE chunks ADD COLUMN chunk_key TEXT;
+CREATE INDEX idx_chunks_chunk_key ON chunks(chunk_key);
+```
 
 This prevents "why is my machine melting?" on large contexts.
 
@@ -357,6 +410,9 @@ Append-only log of all watch triggers:
 - `watch_id`: Watch identifier
 - `query`: Watch query
 - `hits`: Array of matching chunks (snippet is first 200 chars)
+- `truncated`: Boolean, true if hits were capped (optional)
+
+**Hit cap:** Maximum 10 hits stored per entry. If more than 10 chunks match, only top 10 by score are stored and `"truncated": true` is added.
 
 #### 2.2 CLI Commands
 
@@ -415,6 +471,27 @@ Fire HTTP POST when watch triggers.
 ```
 
 **Security note:** Webhook payload includes snippet (first 200 chars) and source_uri, but NEVER full chunk text. This prevents accidental data leakage via webhook logs.
+
+**Path sanitization:** `source_uri` is sanitized to **filename only** (not full path) to prevent leaking directory structure. Example: `C:\Users\Jordan\Private\diary.md` → `diary.md`
+
+**Webhook URL validation:**
+- HTTPS required (HTTP rejected)
+- Private IPs blocked: `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
+- `localhost` blocked
+
+```python
+def validate_webhook_url(url: str) -> bool:
+    """Validate webhook URL for security."""
+    parsed = urlparse(url)
+    if parsed.scheme != 'https':
+        return False
+    try:
+        ip = ipaddress.ip_address(socket.gethostbyname(parsed.hostname))
+        if ip.is_private or ip.is_loopback:
+            return False
+    except:
+        pass  # DNS failure = allow (might be valid external domain)
+    return True
 ```
 
 **Signature verification:**
@@ -572,6 +649,25 @@ Cross-context search respects allowlist:
 - If `context_allowlist` is set, `"all"` means "all allowed contexts"
 - Cannot search contexts not in allowlist
 
+**Allowlist violation behavior (Q16):** Silent filtering. If user requests `["Chinvex", "Personal"]` but only `Chinvex` is allowed, return only Chinvex results. Log warning: `"Context 'Personal' not in allowlist, skipping"`. No error returned to client.
+
+### API Backward Compatibility
+
+**Accept both `context` (singular) and `contexts` (plural)** for backward compatibility with P2 clients:
+
+```python
+# P2 format (still works)
+{"context": "Chinvex", "query": "test"}
+
+# P3 format (new)
+{"contexts": ["Chinvex", "Personal"], "query": "test"}
+
+# P3 format with "all"
+{"contexts": "all", "query": "test"}
+```
+
+If both `context` and `contexts` are provided, `contexts` takes precedence.
+
 ### Score Comparability
 
 **Note:** Merging by raw `score` assumes scores are comparable across contexts. Chinvex normalizes scores to 0–1 per-query per-index, so this is *mostly* safe. However, if you observe ranking anomalies:
@@ -641,12 +737,9 @@ Old content clutters search results. Archive tier moves stale content out of def
 **Precedence rules:**
 1. Default search excludes archived docs entirely (hard filter)
 2. Recency decay applies only within active (non-archived) docs
-3. `--include-archive` reintroduces archived docs with a score penalty (e.g., 0.8x multiplier)
+3. `--include-archive` reintroduces archived docs with a configurable penalty
 
-This means:
-- Very old docs (>180d) get archived → completely out of default results
-- Moderately old active docs (30-180d) → still searchable, but recency-decayed
-- `--include-archive` brings back archived docs, but they rank lower than equally-relevant active docs
+**Key decision: Archive penalty REPLACES recency decay for archived docs.** Don't double-penalize.
 
 ### Implementation: Flag-Based
 
@@ -660,20 +753,17 @@ CREATE INDEX idx_documents_archived ON documents(archived);
 
 **Search modification:**
 ```python
-def search_context(ctx, query, k=10, include_archive=False):
-    # ... existing search logic ...
-    
-    if not include_archive:
-        # Filter out archived docs at the SQL level
-        where_clause += " AND d.archived = 0"
+def apply_score_adjustments(result, config, include_archive=False):
+    if result.archived:
+        if include_archive:
+            # Archive penalty only, no recency decay
+            result.score *= config.archive.archive_penalty
+        else:
+            return None  # Excluded
     else:
-        # Apply archive penalty to scores
-        for result in results:
-            if result.archived:
-                result.score *= 0.8  # Archive penalty
-    
-    # ... rest of search ...
-```
+        # Active doc: apply recency decay
+        result.score *= recency_decay(result.updated_at)
+    return result
 ```
 
 ### Configuration
@@ -683,10 +773,18 @@ def search_context(ctx, query, k=10, include_archive=False):
   "archive": {
     "enabled": true,
     "age_threshold_days": 180,
-    "auto_archive_on_ingest": true
+    "auto_archive_on_ingest": true,
+    "archive_penalty": 0.8
   }
 }
 ```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | true | Enable archive tier |
+| `age_threshold_days` | 180 | Docs older than this get archived |
+| `auto_archive_on_ingest` | true | Run archive check after each ingest |
+| `archive_penalty` | 0.8 | Score multiplier when `--include-archive` |
 
 ### Archive Timestamp Source
 
@@ -708,8 +806,13 @@ This ensures archive reflects *content* age, not just when you happened to inges
 ### CLI Commands
 
 ```bash
-# Manual archive (mark docs older than threshold)
-chinvex archive run --context Chinvex [--older-than 180d] [--dry-run]
+# Manual archive (dry-run by default)
+chinvex archive run --context Chinvex [--older-than 180d]
+# Output: "Would archive 5 docs (dry-run)"
+
+# Execute archive
+chinvex archive run --context Chinvex --force
+# Output: "Archived 5 docs (older than 180d)"
 
 # Search including archived
 chinvex search --context Chinvex "old decision" --include-archive
@@ -723,9 +826,18 @@ chinvex archive restore --context Chinvex --doc-id abc123
 # Restore by query (interactive)
 chinvex archive restore --context Chinvex --query "project X" --interactive
 
-# Permanently delete archived (careful!)
-chinvex archive purge --context Chinvex --older-than 365d [--confirm]
+# Permanently delete archived (dry-run by default)
+chinvex archive purge --context Chinvex --older-than 365d
+# Output: "Would purge 12 docs (dry-run)"
+
+# Execute purge
+chinvex archive purge --context Chinvex --older-than 365d --force
+# Output: "Purged 12 docs permanently"
 ```
+
+**Archive timing (Q23):** When `auto_archive_on_ingest: true`, archive runs immediately after ingest completes (same run). Log message: `"Archived 5 docs (older than 180d)"`.
+
+**Restore behavior (Q24):** Restore only flips the `archived` flag to 0. It does NOT trigger re-ingest or re-embedding. Fingerprints don't track archived status.
 
 ### API Extension
 
@@ -838,10 +950,14 @@ chinvex_grounded_ratio 0.73
 {
   "gateway": {
     "metrics_enabled": true,
-    "metrics_auth_required": false  // Usually internal only
+    "metrics_auth_required": true  // Same bearer token as other endpoints
   }
 }
 ```
+
+**Authentication (Q26):** Metrics endpoint uses the same bearer token as other endpoints for consistent security. Prometheus can pass the token via `Authorization` header or query param `?token=...`.
+
+**Persistence (Q27):** Metrics are **ephemeral** — counters and histograms reset to zero on gateway restart. This is acceptable for single-user; Redis-backed persistence is overkill.
 
 ### ~~5.3 Request ID Tracking~~ ✅ Completed in P2
 
@@ -862,56 +978,68 @@ curl http://localhost:7778/metrics
 
 ## 6. Implementation Order
 
-Matches P3a/P3b/P3c phasing from overview.
+Matches P3a/P3b/P3c phasing from overview. **Note: Cross-context ships before chunking** (quick win, no re-index required).
 
 ### P3a: Quality + Convenience
 
-#### Phase 1: Chunking (P3.1) — 2-3 days
-1. Overlap implementation
-2. Semantic boundary detection (proportional window)
-3. Python code-aware splitting (AST-based)
-4. JS/TS heuristic splitting (regex only)
-5. Markdown-aware splitting
-6. Language detection
-7. Rechunk-only mode with stable chunk keys
-8. Bump chunker_version
-9. Re-index test + stats logging
+#### Phase 1: Cross-Context Search (P3.3) — 1-2 days
+*Ship first — works with existing indexes, immediate user value.*
 
-#### Phase 2: Cross-Context Search (P3.3) — 1-2 days
-10. Multi-context search logic
-11. Result merging by score (with per-context caps)
-12. CLI --all / --contexts flags
-13. API multi-context support
-14. Allowlist enforcement
+1. Multi-context search logic
+2. Result merging by score (with per-context caps)
+3. CLI --all / --contexts flags
+4. API multi-context support (backward compat: accept both `context` and `contexts`)
+5. Allowlist enforcement (silent filtering)
+
+#### Phase 2: Chunking v2 (P3.1) — 2-3 days
+*Requires re-index, but improves all future queries.*
+
+6. Overlap implementation (generic chunking only)
+7. Semantic boundary detection (proportional window)
+8. Python code-aware splitting (AST-based)
+9. JS/TS heuristic splitting (regex only, no parser)
+10. Markdown-aware splitting
+11. Language detection
+12. Bump chunker_version
+13. Re-index test + stats logging
+
+#### Phase 2b: Rechunk Optimization (P3.1b) — 1 day
+*Optional optimization, ship after basic chunking works.*
+
+14. Stable chunk keys (`sha256(normalized_text)`)
+15. SQLite chunk_key storage
+16. Embedding reuse logic
+17. `--rechunk-only` CLI flag
+18. Stats logging (reused vs new embeddings)
 
 ### P3b: Proactive Foundation
 
 #### Phase 3: Watch History (P3.2 — log only) — 1 day
-15. watch_history.jsonl append on trigger
-16. `chinvex watch history` CLI
-17. History filtering (--since, --id)
+19. watch_history.jsonl append on trigger
+20. `chinvex watch history` CLI
+21. History filtering (--since, --id)
 
 ### P3c: Policy + Ops
 
 #### Phase 4: Archive Tier (P3.4) — 2 days
-18. Add archived column to schema
-19. Archive timestamp source logic (updated_at vs ingested_at)
-20. Archive run command
-21. Search filtering + archive penalty
-22. Archive list command
-23. Restore command
-24. Auto-archive on ingest
-25. Purge command
+22. Add archived column to schema (idempotent migration)
+23. Archive timestamp source logic (updated_at vs ingested_at)
+24. Archive run command (dry-run by default, --force to execute)
+25. Search filtering + archive penalty
+26. Archive list command
+27. Restore command
+28. Auto-archive on ingest
+29. Purge command
 
 #### Phase 5: Webhooks (P3.2b) — 1 day
-26. Webhook notification implementation
-27. Webhook signature generation
-28. Retry logic
-29. Security hardening (off by default, snippet only)
+30. Webhook notification implementation
+31. Webhook signature generation
+32. Retry logic (fixed delay, continue on failure)
+33. Security hardening (HTTPS only, block private IPs, snippet only)
 
 #### Phase 6: Gateway Extras (P3.5) — 1-2 days
-30. Redis rate limiting
-31. Prometheus metrics endpoint
+34. Redis rate limiting (fallback to in-memory)
+35. Prometheus metrics endpoint (same bearer auth)
 
 ---
 
@@ -941,6 +1069,7 @@ prometheus-client>=0.19.0  # For metrics (optional)
 {
   "chunking": {
     "max_chars": 3000,
+    "max_lines": 300,
     "overlap_chars": 300,
     "semantic_boundaries": true,
     "code_aware": true,
@@ -957,12 +1086,14 @@ prometheus-client>=0.19.0  # For metrics (optional)
   },
   "cross_context": {
     "enabled": true,
-    "max_contexts_per_query": 10
+    "max_contexts_per_query": 10,
+    "k_per_context": 20
   },
   "archive": {
     "enabled": true,
     "age_threshold_days": 180,
-    "auto_archive_on_ingest": true
+    "auto_archive_on_ingest": true,
+    "archive_penalty": 0.8
   },
   "gateway": {
     "rate_limit": {
@@ -972,14 +1103,98 @@ prometheus-client>=0.19.0  # For metrics (optional)
       "requests_per_hour": 500
     },
     "metrics_enabled": true,
-    "metrics_auth_required": false
+    "metrics_auth_required": true
   }
 }
 ```
 
 ---
 
-## 9. Acceptance Test Summary
+## 10. Schema and Configuration (Q28, Q29)
+
+### Schema Version
+
+P3 **stays at schema v2**. New config fields have sensible defaults, so existing `context.json` files work without modification. No explicit v3 migration required.
+
+### Config File Locations
+
+| Config Type | File | Contents |
+|-------------|------|----------|
+| Context-specific | `contexts/<Name>/context.json` | chunking, archive, watches |
+| Gateway (global) | `P:\ai_memory\gateway.json` | rate_limit, metrics, allowlist |
+| Notifications | `contexts/<Name>/context.json` | webhook settings per context |
+
+---
+
+## 11. P2→P3 Upgrade Procedure (Q30)
+
+### Pre-Upgrade Checklist
+
+1. **Backup:** Copy `P:\ai_memory\` to backup location
+2. **Note current state:** Record doc count, chunk count per context
+3. **Stop gateway:** `pm2 stop chinvex-gateway` (if running)
+
+### Upgrade Steps
+
+```bash
+# 1. Pull latest code
+git pull origin main
+
+# 2. Install new dependencies
+pip install -r requirements.txt --break-system-packages
+
+# 3. Run database migrations (auto on first command)
+chinvex version  # Triggers migration, shows new version
+
+# 4. Re-ingest with new chunker (recommended, not required)
+chinvex ingest --context Chinvex --full
+
+# 5. Restart gateway
+pm2 restart chinvex-gateway
+```
+
+### Rollback
+
+If P3 breaks:
+```bash
+git checkout v0.2.0  # or your P2 tag
+pip install -r requirements.txt --break-system-packages
+# Database is backward compatible, no migration needed
+```
+
+### Compatibility Notes
+
+- **API:** P3 gateway accepts both `context` (P2) and `contexts` (P3) — no client changes required
+- **ChatGPT Actions:** Existing Actions config works unchanged
+- **Database:** Migrations are additive (new columns with defaults), rollback-safe
+
+---
+
+## 12. Test Strategy (Q32)
+
+### Automated Tests (pytest)
+
+- Unit tests for each new module (chunking, cross-context, archive)
+- Integration tests for CLI commands
+- API contract tests for gateway endpoints
+
+Run: `pytest tests/ -v`
+
+### Manual E2E Verification
+
+- Smoke test script: `scripts/e2e_smoke_p3.py`
+- ChatGPT Actions integration test
+- Performance spot-check (cross-context latency)
+
+### Acceptance Test Coverage
+
+Each acceptance test in Section 9 should have:
+1. Automated pytest equivalent (where possible)
+2. Manual verification step (for integration tests)
+
+---
+
+## 13. Acceptance Test Summary
 
 | ID | Test | Pass Criteria |
 |----|------|---------------|
