@@ -1,6 +1,6 @@
 """Test chunking v2 improvements."""
 import pytest
-from chinvex.chunking import chunk_with_overlap, chunk_generic_file
+from chinvex.chunking import chunk_with_overlap, chunk_generic_file, find_best_split, chunk_markdown_file
 
 
 def test_chunk_with_overlap_basic():
@@ -47,3 +47,52 @@ def test_chunk_generic_file_uses_overlap():
         # Last ~300 chars of chunk1 should appear in chunk2
         overlap_text = text1[-300:]
         assert overlap_text in text2
+
+
+def test_find_best_split_prefers_headers():
+    """Test that semantic boundaries are preferred."""
+    text = "a" * 2800 + "\n## Header\n" + "b" * 500
+    # Target split at 3000, should prefer header at 2801
+    split_pos = find_best_split(text, target_pos=3000, size=3000)
+
+    # Should split at or near the header
+    assert 2700 <= split_pos <= 2900
+    assert text[split_pos:split_pos + 10].startswith("\n## ")
+
+
+def test_find_best_split_handles_no_boundaries():
+    """Test fallback when no semantic boundaries found."""
+    text = "a" * 5000  # No boundaries
+    split_pos = find_best_split(text, target_pos=3000, size=3000)
+
+    # Should return near target (may find \n or target itself)
+    assert 2700 <= split_pos <= 3300
+
+
+def test_chunk_markdown_respects_boundaries():
+    """Test that markdown files chunk at headers."""
+    # Create realistic markdown with paragraph breaks
+    paragraphs = []
+    for i in range(50):
+        paragraphs.append(f"This is paragraph {i}. " * 10)  # ~200 chars each
+
+    text = """# Title
+
+Some intro text.
+
+## Section 1
+
+""" + "\n\n".join(paragraphs[:25]) + """
+
+## Section 2
+
+""" + "\n\n".join(paragraphs[25:])
+
+    chunks = chunk_markdown_file(text)
+
+    # Verify chunks start at semantic boundaries
+    for chunk in chunks:
+        if chunk.ordinal > 0:  # Skip first chunk
+            chunk_text = text[chunk.char_start:chunk.char_end]
+            # Should start with newline or header
+            assert chunk_text.startswith(("\n", "#", "##"))

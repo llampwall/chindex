@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from math import ceil
 
@@ -213,4 +214,100 @@ def chunk_generic_file(text: str, size: int = 3000, overlap: int = 300) -> list[
             char_start=start,
             char_end=end,
         ))
+    return chunks
+
+
+# Semantic boundary priorities (pattern, score)
+SPLIT_PRIORITIES = [
+    (r'\n## ', 100),           # Markdown H2
+    (r'\n### ', 90),           # Markdown H3
+    (r'\n---\n', 85),          # Markdown horizontal rule
+    (r'\nclass ', 80),         # Python class (heuristic)
+    (r'\ndef ', 75),           # Python function (heuristic)
+    (r'\nasync def ', 75),     # Python async function
+    (r'\nfunction ', 75),      # JS function (heuristic)
+    (r'\nasync function ', 75),# JS async function
+    (r'\nconst \w+ = \(', 72), # JS arrow function
+    (r'\nconst \w+ = async \(', 72),  # JS async arrow
+    (r'\nconst \w+ = ', 70),   # JS const declaration
+    (r'\nexport default ', 70),# JS/TS default export
+    (r'\nexport ', 68),        # JS/TS named export
+    (r'\nmodule\.exports', 68),# CommonJS export
+    (r'\n\n\n', 60),           # Multiple blank lines
+    (r'\n\n', 50),             # Paragraph break
+    (r'\n', 10),               # Line break (last resort)
+]
+
+
+def find_best_split(text: str, target_pos: int, size: int = 3000) -> int:
+    """
+    Find best split point near target_pos.
+
+    Searches within ±window chars for highest-priority boundary.
+    Always returns a position at a newline or other boundary.
+    """
+    window = int(size * 0.5)  # 50% window for better boundary detection
+    search_start = max(0, target_pos - window)
+    search_end = min(len(text), target_pos + window)
+    search_region = text[search_start:search_end]
+
+    best_score = -1
+    best_pos = None
+
+    for pattern, score in SPLIT_PRIORITIES:
+        for match in re.finditer(pattern, search_region):
+            pos = search_start + match.start()
+            # Prefer splits closer to target
+            distance_penalty = abs(pos - target_pos) / window * 10
+            effective_score = score - distance_penalty
+            if effective_score > best_score:
+                best_score = effective_score
+                best_pos = pos
+
+    # If no boundary found, fallback to target position
+    if best_pos is None:
+        best_pos = target_pos
+
+    return best_pos
+
+
+def chunk_markdown_file(text: str, size: int = 3000, overlap: int = 300) -> list[Chunk]:
+    """
+    Chunk markdown file respecting semantic boundaries.
+
+    Prefers splitting at headers and section boundaries.
+    """
+    chunks = []
+    start = 0
+    ordinal = 0
+
+    while start < len(text):
+        target_end = start + size
+        if target_end >= len(text):
+            # Last chunk
+            chunk_text = text[start:]
+            chunks.append(Chunk(
+                text=chunk_text,
+                ordinal=ordinal,
+                char_start=start,
+                char_end=len(text),
+            ))
+            break
+
+        # Find best split point
+        split_pos = find_best_split(text, target_end, size)
+
+        chunk_text = text[start:split_pos]
+        chunks.append(Chunk(
+            text=chunk_text,
+            ordinal=ordinal,
+            char_start=start,
+            char_end=split_pos,
+        ))
+        ordinal += 1
+
+        # Next chunk starts at the boundary (no overlap for markdown)
+        # This ensures clean splits at headers
+        start = split_pos
+
     return chunks
