@@ -56,6 +56,18 @@ class ArchiveConfig:
 
 
 @dataclass(frozen=True)
+class NotificationsConfig:
+    """Webhook notification configuration (P3)."""
+    enabled: bool
+    webhook_url: str
+    webhook_secret: str
+    notify_on: list[str]
+    min_score_for_notify: float
+    retry_count: int
+    retry_delay_sec: int
+
+
+@dataclass(frozen=True)
 class ContextConfig:
     schema_version: int
     name: str
@@ -72,6 +84,7 @@ class ContextConfig:
     state_llm: dict | None = None
     # P3 additions
     archive: ArchiveConfig | None = None
+    notifications: NotificationsConfig | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> ContextConfig:
@@ -139,6 +152,20 @@ class ContextConfig:
                 archive_penalty=arch_data.get("archive_penalty", 0.8),
             )
 
+        # P3: notifications config (optional)
+        notifications = None
+        if "notifications" in data:
+            notif_data = data["notifications"]
+            notifications = NotificationsConfig(
+                enabled=notif_data.get("enabled", False),
+                webhook_url=notif_data.get("webhook_url", ""),
+                webhook_secret=notif_data.get("webhook_secret", ""),
+                notify_on=notif_data.get("notify_on", ["watch_hit"]),
+                min_score_for_notify=notif_data.get("min_score_for_notify", 0.75),
+                retry_count=notif_data.get("retry_count", 2),
+                retry_delay_sec=notif_data.get("retry_delay_sec", 5),
+            )
+
         # Handle missing timestamp fields for old contexts
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
@@ -157,6 +184,7 @@ class ContextConfig:
             ranking=ranking,
             state_llm=state_llm,
             archive=archive,
+            notifications=notifications,
         )
 
     def to_dict(self) -> dict:
@@ -206,6 +234,18 @@ class ContextConfig:
                 "age_threshold_days": self.archive.age_threshold_days,
                 "auto_archive_on_ingest": self.archive.auto_archive_on_ingest,
                 "archive_penalty": self.archive.archive_penalty,
+            }
+
+        # P3: notifications config (optional)
+        if self.notifications is not None:
+            result["notifications"] = {
+                "enabled": self.notifications.enabled,
+                "webhook_url": self.notifications.webhook_url,
+                "webhook_secret": self.notifications.webhook_secret,
+                "notify_on": self.notifications.notify_on,
+                "min_score_for_notify": self.notifications.min_score_for_notify,
+                "retry_count": self.notifications.retry_count,
+                "retry_delay_sec": self.notifications.retry_delay_sec,
             }
 
         return result
