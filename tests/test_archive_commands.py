@@ -72,6 +72,80 @@ def test_archive_run_force_executes(tmp_path):
     assert row["archived_at"] is not None
 
 
+def test_archive_list_shows_archived_docs(tmp_path):
+    """Test that list_archived_documents returns archived documents."""
+    from chinvex.archive import list_archived_documents
+    from chinvex.storage import Storage
+
+    db_path = tmp_path / "test.db"
+    storage = Storage(db_path)
+    storage.ensure_schema()
+
+    # Insert archived and active docs
+    storage._execute(
+        "INSERT INTO documents (doc_id, source_type, source_uri, title, archived, archived_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ("doc_archived", "repo", "file:///archived.txt", "Archived Doc", 1, "2026-01-01T00:00:00")
+    )
+    storage._execute(
+        "INSERT INTO documents (doc_id, source_type, source_uri, title, archived) VALUES (?, ?, ?, ?, ?)",
+        ("doc_active", "repo", "file:///active.txt", "Active Doc", 0)
+    )
+    storage.conn.commit()
+
+    # List archived
+    docs = list_archived_documents(storage, limit=50)
+
+    # Should only get archived doc
+    assert len(docs) == 1
+    assert docs[0]["doc_id"] == "doc_archived"
+    assert docs[0]["title"] == "Archived Doc"
+
+
+def test_archive_restore_unarchives_doc(tmp_path):
+    """Test that restore flips archived flag."""
+    from chinvex.archive import restore_document
+    from chinvex.storage import Storage
+
+    db_path = tmp_path / "test.db"
+    storage = Storage(db_path)
+    storage.ensure_schema()
+
+    # Insert archived doc
+    storage._execute(
+        "INSERT INTO documents (doc_id, source_type, source_uri, title, archived, archived_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ("doc_archived", "repo", "file:///archived.txt", "Archived Doc", 1, "2026-01-01T00:00:00")
+    )
+    storage.conn.commit()
+
+    # Restore
+    success = restore_document(storage, "doc_archived")
+
+    # Should succeed
+    assert success == True
+
+    # Verify unarchived
+    cursor = storage.conn.execute("SELECT archived, archived_at FROM documents WHERE doc_id = ?", ("doc_archived",))
+    row = cursor.fetchone()
+    assert row["archived"] == 0
+    assert row["archived_at"] is None
+
+
+def test_archive_restore_nonexistent_doc(tmp_path):
+    """Test that restore returns False for nonexistent doc."""
+    from chinvex.archive import restore_document
+    from chinvex.storage import Storage
+
+    db_path = tmp_path / "test.db"
+    storage = Storage(db_path)
+    storage.ensure_schema()
+
+    # Try to restore nonexistent doc
+    success = restore_document(storage, "nonexistent")
+
+    # Should fail
+    assert success == False
+
+
 def test_archive_run_respects_threshold(tmp_path):
     """Test that only docs older than threshold are archived."""
     from chinvex.archive import archive_old_documents

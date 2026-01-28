@@ -65,3 +65,51 @@ def archive_old_documents(storage: Storage, age_threshold_days: int, dry_run: bo
         storage.conn.commit()
 
     return len(candidates)
+
+
+def list_archived_documents(storage: Storage, limit: int = 50) -> list[dict]:
+    """
+    List archived documents.
+
+    Returns list of archived document metadata.
+    """
+    cursor = storage.conn.execute(
+        """
+        SELECT doc_id, source_type, title, archived_at
+        FROM documents
+        WHERE archived = 1
+        ORDER BY archived_at DESC
+        LIMIT ?
+        """,
+        (limit,)
+    )
+
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def restore_document(storage: Storage, doc_id: str) -> bool:
+    """
+    Restore archived document.
+
+    Flips archived flag to 0. Does NOT re-ingest or re-embed.
+    Returns True if document was found and restored.
+    """
+    cursor = storage.conn.execute(
+        "SELECT archived FROM documents WHERE doc_id = ?",
+        (doc_id,)
+    )
+    row = cursor.fetchone()
+
+    if not row:
+        return False
+
+    if row["archived"] == 0:
+        return False  # Already active
+
+    storage._execute(
+        "UPDATE documents SET archived = 0, archived_at = NULL WHERE doc_id = ?",
+        (doc_id,)
+    )
+    storage.conn.commit()
+
+    return True

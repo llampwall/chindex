@@ -645,12 +645,36 @@ def archive(
             print("Use --force to execute")
 
     elif action == "list":
-        # Will implement in Task 19
-        print("List not yet implemented")
+        from chinvex.archive import list_archived_documents
+
+        docs = list_archived_documents(storage, limit=limit)
+
+        if not docs:
+            print("No archived documents found")
+        else:
+            print(f"{'Doc ID':<40} {'Type':<10} {'Title':<40} {'Archived At':<20}")
+            print("-" * 115)
+            for doc in docs:
+                doc_id = doc["doc_id"][:39]
+                source_type = doc["source_type"][:9]
+                title = (doc["title"] or "")[:39]
+                archived_at = doc["archived_at"][:19] if doc["archived_at"] else "N/A"
+                print(f"{doc_id:<40} {source_type:<10} {title:<40} {archived_at:<20}")
 
     elif action == "restore":
-        # Will implement in Task 19
-        print("Restore not yet implemented")
+        from chinvex.archive import restore_document
+
+        if not doc_id:
+            print("Error: --doc-id required for restore")
+            raise typer.Exit(1)
+
+        success = restore_document(storage, doc_id)
+
+        if success:
+            print(f"Restored document: {doc_id}")
+        else:
+            print(f"Document not found or already active: {doc_id}")
+            raise typer.Exit(1)
 
     elif action == "purge":
         # Will implement in Task 21
