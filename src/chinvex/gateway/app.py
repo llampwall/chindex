@@ -101,6 +101,16 @@ app.include_router(
     dependencies=[Depends(check_rate_limit)]
 )
 
+# Optional answer endpoint (flag-gated)
+if config.enable_server_llm:
+    from .endpoints import answer
+    app.include_router(
+        answer.router,
+        prefix="/v1",
+        tags=["Answer"],
+        dependencies=[Depends(check_rate_limit)]
+    )
+
 
 def custom_openapi():
     """Customize OpenAPI schema for ChatGPT Actions compatibility."""
