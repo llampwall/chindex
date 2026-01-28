@@ -40,6 +40,7 @@ def search(
     repo: str | None = None,
     ollama_host_override: str | None = None,
     weights: dict[str, float] | None = None,
+    include_archive: bool = False,
 ) -> list[SearchResult]:
     db_path = config.index_dir / "hybrid.db"
     chroma_dir = config.index_dir / "chroma"
@@ -68,6 +69,7 @@ def search(
         project=project,
         repo=repo,
         weights=weights,
+        include_archive=include_archive,
     )
     results = [
         SearchResult(
@@ -96,6 +98,7 @@ def search_chunks(
     project: str | None = None,
     repo: str | None = None,
     weights: dict[str, float] | None = None,
+    include_archive: bool = False,
 ) -> list[ScoredChunk]:
     """
     Hybrid search with score normalization and weight renormalization.
@@ -103,6 +106,7 @@ def search_chunks(
     Args:
         weights: Optional source-type weights dict (e.g., {"repo": 1.0, "chat": 0.8})
                  If None, no weight adjustment applied.
+        include_archive: If False (default), exclude archived documents from results.
     """
     filters = {}
     if source in {"repo", "chat", "codex_session"}:
@@ -111,6 +115,8 @@ def search_chunks(
         filters["project"] = project
     if repo:
         filters["repo"] = repo
+    if not include_archive:
+        filters["archived"] = 0
 
     # Perform FTS search
     lex_rows = storage.search_fts(query, limit=30, filters=filters)
@@ -123,6 +129,8 @@ def search_chunks(
         where["project"] = project
     if repo:
         where["repo"] = repo
+    if not include_archive:
+        where["archived"] = 0
 
     query_embedding = embedder.embed([query])
     vec_result = vectors.query(query_embedding, n_results=30, where=where)
