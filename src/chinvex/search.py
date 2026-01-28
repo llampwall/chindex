@@ -322,16 +322,16 @@ def hybrid_search_from_context(
     storage.ensure_schema()
 
     # FTS search
-    fts_results = storage.fts_search(query, limit=k * 2)
+    fts_results = storage.search_fts(query, limit=k * 2)
 
     # Vector search
     embedder = OllamaEmbedder(
-        model=context.ollama.embedding_model,
-        host=context.ollama.host
+        model=context.ollama.embed_model,
+        host=context.ollama.base_url
     )
     vec_store = VectorStore(chroma_dir)
-    query_embedding = embedder.embed([query])[0]
-    vec_results = vec_store.search(query_embedding, k=k * 2)
+    query_embedding = embedder.embed([query])
+    vec_results = vec_store.query(query_embedding, n_results=k * 2)
 
     # Merge and score
     from .scoring import merge_and_rank

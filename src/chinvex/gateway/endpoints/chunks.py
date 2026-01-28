@@ -1,9 +1,11 @@
 """Chunks endpoint - fetch specific chunks by ID."""
 
+import json
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from chinvex.context import load_context
+from chinvex.context import load_context, ContextNotFoundError
+from chinvex.context_cli import get_contexts_root
 from chinvex.storage import Storage
 from chinvex.gateway.validation import ChunksRequest
 from chinvex.gateway.config import load_gateway_config
@@ -26,8 +28,9 @@ async def get_chunks(req: ChunksRequest, request: Request):
     request.state.context = req.context
 
     try:
-        context = load_context(req.context)
-    except FileNotFoundError:
+        contexts_root = get_contexts_root()
+        context = load_context(req.context, contexts_root)
+    except ContextNotFoundError:
         raise HTTPException(status_code=404, detail="Context not found")
 
     config = load_gateway_config()
@@ -45,7 +48,7 @@ async def get_chunks(req: ChunksRequest, request: Request):
                 "text": c["text"],
                 "source_uri": c["source_uri"],
                 "source_type": c["source_type"],
-                "metadata": c.get("metadata", {})
+                "metadata": json.loads(c["meta_json"]) if c["meta_json"] else {}
             }
             for c in chunks
         ]

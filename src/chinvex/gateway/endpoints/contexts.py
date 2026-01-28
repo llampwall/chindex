@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from chinvex.context import list_contexts
+from chinvex.context_cli import get_contexts_root
 from chinvex.gateway.config import load_gateway_config
 
 
@@ -27,7 +28,8 @@ async def list_available_contexts():
     """
     List available contexts. Respects allowlist.
     """
-    all_contexts = list_contexts()
+    contexts_root = get_contexts_root()
+    all_contexts = list_contexts(contexts_root)
     config = load_gateway_config()
 
     # Filter by allowlist if configured

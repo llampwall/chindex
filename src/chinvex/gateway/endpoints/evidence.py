@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from chinvex.context import load_context
+from chinvex.context import load_context, ContextNotFoundError
 from chinvex.context_cli import get_contexts_root
 from chinvex.search import hybrid_search_from_context
 from chinvex.gateway.validation import EvidenceRequest
@@ -43,7 +43,7 @@ async def get_evidence(req: EvidenceRequest, request: Request):
     try:
         contexts_root = get_contexts_root()
         context = load_context(req.context, contexts_root)
-    except FileNotFoundError:
+    except ContextNotFoundError:
         raise HTTPException(status_code=404, detail="Context not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load context: {str(e)}")

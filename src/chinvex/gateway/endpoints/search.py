@@ -3,7 +3,8 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from chinvex.context import load_context
+from chinvex.context import load_context, ContextNotFoundError
+from chinvex.context_cli import get_contexts_root
 from chinvex.search import hybrid_search_from_context
 from chinvex.gateway.validation import SearchRequest
 from chinvex.gateway.config import load_gateway_config
@@ -28,8 +29,9 @@ async def search(req: SearchRequest, request: Request):
     request.state.context = req.context
 
     try:
-        context = load_context(req.context)
-    except FileNotFoundError:
+        contexts_root = get_contexts_root()
+        context = load_context(req.context, contexts_root)
+    except ContextNotFoundError:
         raise HTTPException(status_code=404, detail="Context not found")
 
     config = load_gateway_config()
