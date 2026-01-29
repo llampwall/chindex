@@ -418,10 +418,8 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
                 )
 
             # Ingest Codex sessions
-            # For P0, codex_session_roots triggers fetching from app-server URL
-            import os
-            if ctx.includes.codex_session_roots:
-                appserver_url = os.getenv("CHINVEX_APPSERVER_URL", "http://localhost:8080")
+            if ctx.includes.codex_session_roots and ctx.codex_appserver and ctx.codex_appserver.enabled:
+                appserver_url = ctx.codex_appserver.base_url
                 _ingest_codex_sessions_from_context(
                     ctx, appserver_url, storage, embedder, vectors, stats, tracking, rechunk_only
                 )
