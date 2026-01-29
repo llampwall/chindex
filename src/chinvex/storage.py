@@ -297,10 +297,7 @@ class Storage:
     def delete_chunks_for_doc(self, doc_id: str) -> list[str]:
         cur = self._execute("SELECT chunk_id FROM chunks WHERE doc_id = ?", (doc_id,))
         chunk_ids = [row["chunk_id"] for row in cur.fetchall()]
-        self._execute(
-            "DELETE FROM chunks_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE doc_id = ?)",
-            (doc_id,),
-        )
+        # Delete from content table - FTS5 index updates automatically via triggers
         self._execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
         self.conn.commit()
         return chunk_ids
