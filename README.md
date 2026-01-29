@@ -199,6 +199,51 @@ Example output (truncated):
 
 Returns evidence pack with chunks and citations for grounded answering.
 
+## Gateway (HTTP API)
+
+The gateway provides an HTTP API for search, evidence retrieval, and context management.
+
+### Manual Startup (Development)
+
+Requires 2 terminals:
+
+**Terminal 1 - Cloudflare Tunnel:**
+```powershell
+cloudflared tunnel run chinvex-gateway
+```
+
+**Terminal 2 - Gateway Server:**
+```powershell
+cd C:\Code\chinvex
+pwsh -ExecutionPolicy Bypass -File .\start_gateway.ps1
+```
+
+Or directly:
+```powershell
+python -m chinvex.cli gateway serve --port 7778
+```
+
+### Verification
+
+```powershell
+curl http://localhost:7778/health
+```
+
+Or via tunnel:
+```powershell
+curl https://chinvex.yourdomain.com/health
+```
+
+### Production Setup
+
+For running as a service (PM2, systemd, etc.), see:
+- [Cloudflare Tunnel Setup](docs/deployment/cloudflare-tunnel.md)
+- [Caddy Reverse Proxy](docs/deployment/caddy.md)
+
+### API Documentation
+
+See [ChatGPT Integration](docs/chatgpt-integration.md) for API examples and OpenAPI spec.
+
 ## Troubleshooting
 - FTS5 missing: install a Python build with SQLite FTS5 enabled.
 - Ollama connection/model missing: ensure Ollama is running and `ollama pull mxbai-embed-large` completed.
