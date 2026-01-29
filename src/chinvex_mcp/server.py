@@ -1,285 +1,250 @@
+"""Chinvex MCP Server - HTTP client for Chinvex gateway.
+
+Exposes Chinvex memory search to Claude Desktop/Code via MCP protocol.
+Configured via environment variables:
+  - CHINVEX_URL: Gateway URL (default: https://chinvex.unkndlabs.com)
+  - CHINVEX_API_TOKEN: Bearer token for authentication
+"""
+
 from __future__ import annotations
 
-import argparse
+import os
 import json
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from typing import Optional
 
-from chinvex.config import AppConfig, ConfigError, load_config
-from chinvex.embed import OllamaEmbedder
-from chinvex.search import ScoredChunk, make_snippet, search_chunks
-from chinvex.storage import Storage
-from chinvex.vectors import VectorStore
+import httpx
+from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, Field, ConfigDict
 
-try:
-    from mcp.server.fastmcp import FastMCP, MCPError
-except ImportError:  # pragma: no cover - fallback if MCPError name differs
-    from mcp.server.fastmcp import FastMCP
+# Configuration from environment
+CHINVEX_URL = os.environ.get("CHINVEX_URL", "https://chinvex.unkndlabs.com")
+CHINVEX_API_TOKEN = os.environ.get("CHINVEX_API_TOKEN", "")
 
-    class MCPError(RuntimeError):
-        pass
+if not CHINVEX_API_TOKEN:
+    raise RuntimeError("CHINVEX_API_TOKEN environment variable is required")
 
+# Initialize MCP server
+mcp = FastMCP("chinvex_mcp")
 
-class ToolError(RuntimeError):
-    pass
+# HTTP client
+_client: httpx.Client | None = None
 
 
-@dataclass
-class IndexHandle:
-    config_path: Path
-    config: AppConfig
-    storage: Storage
-    vectors: VectorStore
+def get_client() -> httpx.Client:
+    """Get or create HTTP client with auth headers."""
+    global _client
+    if _client is None:
+        _client = httpx.Client(
+            base_url=CHINVEX_URL,
+            headers={"Authorization": f"Bearer {CHINVEX_API_TOKEN}"},
+            timeout=30.0,
+        )
+    return _client
 
 
-@dataclass
-class ServerState:
-    handle: IndexHandle
-    default_k: int
-    default_min_score: float
-    ollama_host_override: str | None
+# --- Input Models ---
 
 
-_INDEX_CACHE: dict[str, IndexHandle] = {}
+class SearchInput(BaseModel):
+    """Input for chinvex_search tool."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    query: str = Field(..., description="Search query text", min_length=1)
+    contexts: Optional[str] = Field(
+        default="all",
+        description="Context(s) to search. Use 'all' for cross-context, or specific name like 'Chinvex'",
+    )
+    k: int = Field(default=8, description="Number of results to return", ge=1, le=50)
+
+
+class ListContextsInput(BaseModel):
+    """Input for chinvex_list_contexts tool (no parameters needed)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GetChunksInput(BaseModel):
+    """Input for chinvex_get_chunks tool."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    context: str = Field(..., description="Context name", min_length=1)
+    chunk_ids: list[str] = Field(
+        ..., description="List of chunk IDs to retrieve", min_length=1
+    )
+
+
+# --- Tools ---
+
+
+@mcp.tool(
+    name="chinvex_search",
+    annotations={
+        "title": "Search Chinvex Memory",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def chinvex_search(params: SearchInput) -> str:
+    """Search personal knowledge base with grounded retrieval.
+
+    Returns evidence chunks with citations from indexed sources including
+    code repos, chat exports, and notes. Use this to find relevant context
+    about past conversations, project details, or documented information.
+
+    Args:
+        params: Search parameters including query, contexts, and result count
+
+    Returns:
+        JSON with grounded status and matching chunks with source citations
+    """
+    client = get_client()
+
+    # Build request - use contexts field for cross-context search
+    payload = {
+        "query": params.query,
+        "k": params.k,
+    }
+    if params.contexts == "all":
+        payload["contexts"] = "all"
+    else:
+        payload["context"] = params.contexts  # singular field for single context
+
+    try:
+        resp = client.post("/v1/evidence", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Format response for readability
+        # Extract chunks from evidence_pack
+        chunks = data.get("evidence_pack", {}).get("chunks", [])
+
+        result = {
+            "grounded": data.get("grounded", False),
+            "contexts_searched": data.get("contexts_searched", []),
+            "query": data.get("query", params.query),
+            "total_results": len(chunks),
+            "chunks": [],
+        }
+
+        for chunk in chunks:
+            result["chunks"].append(
+                {
+                    "id": chunk.get("chunk_id"),
+                    "source": chunk.get("source_uri", ""),
+                    "context": chunk.get("context", ""),
+                    "score": chunk.get("score"),
+                    "text": chunk.get("text", "")[:2000],  # Truncate very long chunks
+                }
+            )
+
+        return json.dumps(result, indent=2)
+
+    except httpx.HTTPStatusError as e:
+        return json.dumps(
+            {"error": f"HTTP {e.response.status_code}: {e.response.text[:500]}"}
+        )
+    except Exception as e:
+        return json.dumps({"error": f"Request failed: {type(e).__name__}: {str(e)}"})
+
+
+@mcp.tool(
+    name="chinvex_list_contexts",
+    annotations={
+        "title": "List Available Contexts",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def chinvex_list_contexts(params: ListContextsInput) -> str:
+    """List all available contexts in the Chinvex knowledge base.
+
+    Use this to discover what contexts are available for searching.
+    Each context represents a project or knowledge domain.
+
+    Returns:
+        JSON list of contexts with names, aliases, and last update times
+    """
+    client = get_client()
+
+    try:
+        resp = client.get("/v1/contexts")
+        resp.raise_for_status()
+        data = resp.json()
+
+        contexts = []
+        for ctx in data.get("contexts", []):
+            contexts.append(
+                {
+                    "name": ctx.get("name"),
+                    "aliases": ctx.get("aliases", []),
+                    "updated_at": ctx.get("updated_at"),
+                }
+            )
+
+        return json.dumps({"contexts": contexts}, indent=2)
+
+    except httpx.HTTPStatusError as e:
+        return json.dumps(
+            {"error": f"HTTP {e.response.status_code}: {e.response.text[:500]}"}
+        )
+    except Exception as e:
+        return json.dumps({"error": f"Request failed: {type(e).__name__}: {str(e)}"})
+
+
+@mcp.tool(
+    name="chinvex_get_chunks",
+    annotations={
+        "title": "Get Chunks by ID",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def chinvex_get_chunks(params: GetChunksInput) -> str:
+    """Retrieve full chunk content by ID.
+
+    Use this after searching to get the complete text of specific chunks
+    when you need more context than the search snippet provides.
+
+    Args:
+        params: Context name and list of chunk IDs to retrieve
+
+    Returns:
+        JSON with full chunk content and metadata
+    """
+    client = get_client()
+
+    payload = {
+        "context": params.context,
+        "chunk_ids": params.chunk_ids,
+    }
+
+    try:
+        resp = client.post("/v1/chunks", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+
+        return json.dumps(data, indent=2)
+
+    except httpx.HTTPStatusError as e:
+        return json.dumps(
+            {"error": f"HTTP {e.response.status_code}: {e.response.text[:500]}"}
+        )
+    except Exception as e:
+        return json.dumps({"error": f"Request failed: {type(e).__name__}: {str(e)}"})
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="chinvex MCP server (stdio)")
-    parser.add_argument("--config", default="config.json", help="Path to chinvex config JSON")
-    parser.add_argument("--ollama-host", help="Override Ollama host for query embeddings")
-    parser.add_argument("--k", type=int, default=8, help="Default top-k for search")
-    parser.add_argument("--min-score", type=float, default=0.30, help="Default minimum score filter")
-    args = parser.parse_args()
-
-    state = build_state(
-        Path(args.config),
-        default_k=args.k,
-        default_min_score=args.min_score,
-        ollama_host_override=args.ollama_host,
-    )
-
-    mcp = FastMCP("chinvex")
-
-    @mcp.tool(name="chinvex_search")
-    def chinvex_search(
-        query: str,
-        source: str | None = None,
-        k: int | None = None,
-        min_score: float | None = None,
-        include_text: bool = False,
-    ) -> list[dict]:
-        try:
-            return handle_search(
-                state,
-                query=query,
-                source=source,
-                k=k,
-                min_score=min_score,
-                include_text=include_text,
-            )
-        except ToolError as exc:
-            raise MCPError(str(exc)) from exc
-
-    @mcp.tool(name="chinvex_get_chunk")
-    def chinvex_get_chunk(chunk_id: str) -> dict:
-        try:
-            return handle_get_chunk(state, chunk_id=chunk_id)
-        except ToolError as exc:
-            raise MCPError(str(exc)) from exc
-
+    """Run the MCP server (stdio transport)."""
     mcp.run()
 
 
-def build_state(
-    config_path: Path,
-    *,
-    default_k: int,
-    default_min_score: float,
-    ollama_host_override: str | None,
-) -> ServerState:
-    handle = _get_index_handle(config_path)
-    return ServerState(
-        handle=handle,
-        default_k=default_k,
-        default_min_score=default_min_score,
-        ollama_host_override=ollama_host_override,
-    )
-
-
-def handle_search(
-    state: ServerState,
-    *,
-    query: str,
-    source: str | None,
-    k: int | None,
-    min_score: float | None,
-    include_text: bool,
-) -> list[dict]:
-    source_value = source or "all"
-    if source_value not in {"all", "repo", "chat"}:
-        raise ToolError("source must be one of: repo, chat")
-    effective_k = k if k is not None else state.default_k
-    effective_min = min_score if min_score is not None else state.default_min_score
-
-    embedder = OllamaEmbedder(
-        state.ollama_host_override or state.handle.config.ollama_host,
-        state.handle.config.embedding_model,
-    )
-
-    scored = search_chunks(
-        state.handle.storage,
-        state.handle.vectors,
-        embedder,
-        query,
-        k=effective_k,
-        min_score=effective_min,
-        source=source_value,
-    )
-    return [format_result(state.handle.storage, item, include_text=include_text) for item in scored]
-
-
-def handle_get_chunk(state: ServerState, *, chunk_id: str) -> dict:
-    row = state.handle.storage.conn.execute(
-        "SELECT * FROM chunks WHERE chunk_id = ?",
-        (chunk_id,),
-    ).fetchone()
-    if row is None:
-        raise ToolError(f"Chunk not found: {chunk_id}")
-    meta = json.loads(row["meta_json"]) if row["meta_json"] else {}
-    doc = state.handle.storage.get_document(row["doc_id"])
-    path = meta.get("path") or (doc["source_uri"] if doc else "")
-    title = _title_from_row(row, path)
-    return {
-        "chunk_id": row["chunk_id"],
-        "source_type": row["source_type"],
-        "path": path,
-        "title": title,
-        "text": row["text"],
-        "meta": meta,
-    }
-
-
-def format_result(storage: Storage, item: ScoredChunk, *, include_text: bool) -> dict:
-    row = item.row
-    meta = json.loads(row["meta_json"]) if row["meta_json"] else {}
-    doc = storage.get_document(row["doc_id"])
-    path = meta.get("path") or (doc["source_uri"] if doc else "")
-    title = _title_from_row(row, path)
-    result = {
-        "score": item.score,
-        "source_type": row["source_type"],
-        "title": title,
-        "path": path,
-        "chunk_id": row["chunk_id"],
-        "doc_id": row["doc_id"],
-        "ordinal": row["ordinal"],
-        "snippet": make_snippet(row["text"], limit=300),
-        "meta": meta,
-    }
-    if include_text:
-        result["text"] = row["text"]
-    return result
-
-
-def _title_from_row(row: Any, path: str) -> str:
-    if row["source_type"] == "repo":
-        return Path(path).name if path else row["doc_id"]
-    meta = json.loads(row["meta_json"]) if row["meta_json"] else {}
-    return meta.get("title") or row["doc_id"]
-
-
-def _get_index_handle(config_path: Path) -> IndexHandle:
-    key = str(config_path.resolve())
-    if key in _INDEX_CACHE:
-        return _INDEX_CACHE[key]
-    try:
-        config = load_config(config_path)
-    except (ConfigError, OSError) as exc:
-        raise ToolError(f"Invalid config: {exc}") from exc
-
-    db_path = config.index_dir / "hybrid.db"
-    chroma_dir = config.index_dir / "chroma"
-    if not db_path.exists() or not chroma_dir.exists():
-        raise ToolError(
-            "Index not found. Run `chinvex ingest --config <path>` before using the MCP server."
-        )
-
-    storage = Storage(db_path)
-    storage.ensure_schema()
-    vectors = VectorStore(chroma_dir)
-    handle = IndexHandle(
-        config_path=config_path,
-        config=config,
-        storage=storage,
-        vectors=vectors,
-    )
-    _INDEX_CACHE[key] = handle
-    return handle
-
-
-def handle_chinvex_answer(
-    query: str,
-    context_name: str,
-    *,
-    k: int = 8,
-    min_score: float = 0.35,
-    source: str | None = None,
-    contexts_root: Path | None = None,
-) -> dict:
-    """
-    Grounded search tool that returns evidence pack (no LLM synthesis).
-
-    Returns:
-        {
-            "query": str,
-            "chunks": [{"chunk_id": str, "text": str, "score": float, "source_type": str}],
-            "citations": [str],
-            "context_name": str,
-            "weights_applied": dict[str, float]
-        }
-    """
-    import os
-    from chinvex.context import load_context, ContextNotFoundError
-    from chinvex.search import search_context
-
-    if contexts_root is None:
-        contexts_root = Path(os.getenv("CHINVEX_CONTEXTS_ROOT", "P:/ai_memory/contexts"))
-
-    try:
-        ctx = load_context(context_name, contexts_root)
-    except ContextNotFoundError as exc:
-        return {
-            "error": str(exc),
-            "query": query,
-            "chunks": [],
-            "citations": [],
-        }
-
-    results = search_context(
-        ctx,
-        query,
-        k=k,
-        min_score=min_score,
-        source=source or "all",
-    )
-
-    chunks = [
-        {
-            "chunk_id": r.chunk_id,
-            "text": r.snippet,  # P0: return snippet, not full text
-            "score": r.score,
-            "source_type": r.source_type,
-        }
-        for r in results
-    ]
-
-    citations = [r.citation for r in results]
-
-    return {
-        "query": query,
-        "chunks": chunks,
-        "citations": citations,
-        "context_name": context_name,
-        "weights_applied": ctx.weights,
-    }
+if __name__ == "__main__":
+    main()

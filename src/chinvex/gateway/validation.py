@@ -11,7 +11,7 @@ CHUNK_ID_PATTERN = re.compile(r'^[a-f0-9]{12}$')
 class EvidenceRequest(BaseModel):
     """Request for /v1/evidence endpoint."""
     context: Optional[str] = None
-    contexts: Optional[list[str]] = None
+    contexts: Optional[list[str] | str] = None
     query: str
     k: int = 8
     source_types: Optional[list[str]] = None
@@ -29,12 +29,17 @@ class EvidenceRequest(BaseModel):
             if info.data.get('context') is not None:
                 raise ValueError('Cannot specify both context and contexts')
 
-            # Validate each context name
-            if len(v) == 0:
-                raise ValueError('contexts list cannot be empty')
-            for ctx in v:
-                if not CONTEXT_PATTERN.match(ctx):
-                    raise ValueError(f'Invalid context name format: {ctx}')
+            # If string, must be "all"
+            if isinstance(v, str):
+                if v != "all":
+                    raise ValueError('contexts string must be "all"')
+            # If list, validate each context name
+            elif isinstance(v, list):
+                if len(v) == 0:
+                    raise ValueError('contexts list cannot be empty')
+                for ctx in v:
+                    if not CONTEXT_PATTERN.match(ctx):
+                        raise ValueError(f'Invalid context name format: {ctx}')
         return v
 
     @field_validator('query')

@@ -16,7 +16,8 @@ router = APIRouter()
 
 class EvidenceResponse(BaseModel):
     """Response from evidence endpoint."""
-    context: str
+    context: str | None = None
+    contexts_searched: list[str] | None = None
     query: str
     grounded: bool
     evidence_pack: dict
@@ -38,8 +39,20 @@ async def get_evidence(req: EvidenceRequest, request: Request):
     """
     # Determine which context to use
     if req.contexts:
-        # Use first context from list (cross-context not fully supported yet)
-        context_name = req.contexts[0]
+        if isinstance(req.contexts, str) and req.contexts == "all":
+            # For "all", use the first available context (multi-context not fully supported yet)
+            contexts_root = get_contexts_root()
+            config = load_gateway_config()
+            from chinvex.context import list_contexts
+            all_ctx = [c.name for c in list_contexts(contexts_root)]
+            if config.context_allowlist:
+                all_ctx = [c for c in all_ctx if c in config.context_allowlist]
+            if not all_ctx:
+                raise HTTPException(status_code=404, detail="No contexts available")
+            context_name = all_ctx[0]
+        else:
+            # Use first context from list (cross-context not fully supported yet)
+            context_name = req.contexts[0]
     elif req.context:
         context_name = req.context
     else:
@@ -100,6 +113,7 @@ async def get_evidence(req: EvidenceRequest, request: Request):
 
     return EvidenceResponse(
         context=context_name,
+        contexts_searched=[context_name],
         query=req.query,
         grounded=grounded,
         evidence_pack=evidence_pack,
