@@ -59,6 +59,16 @@ everything is in /src/chinvex besides the mcp server, which is in /src/chinvex_m
   * time-awareness (chat exports often have missing timestamps)
   * **Codex session chats** are not ingested yet (and they matter a lot)
 
+## Session Start Protocol
+
+On session start, run: `chinvex brief --context Chinvex`
+
+Read the output before proceeding with any work. This loads current state,
+constraints, recent decisions, and activity into your context.
+
+**Why:** Ensures Claude starts with awareness of project state rather than
+guessing or relying on stale information.
+
 ## Rules
 - Follow the spec exactly
 - Ask before adding dependencies
