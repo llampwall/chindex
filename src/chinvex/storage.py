@@ -24,6 +24,15 @@ class Storage:
         return None
 
     @classmethod
+    def force_close_global_connection(cls) -> None:
+        """Force close the global shared connection. Use before deleting database file."""
+        global _CONN, _CONN_PATH
+        if _CONN is not None:
+            _CONN.close()
+            _CONN = None
+            _CONN_PATH = None
+
+    @classmethod
     def _get_connection(cls, db_path: Path) -> sqlite3.Connection:
         global _CONN, _CONN_PATH
         if _CONN is None or _CONN_PATH != db_path:

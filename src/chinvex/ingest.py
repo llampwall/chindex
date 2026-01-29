@@ -434,8 +434,39 @@ def ingest_context(
                             f"Use --rebuild-index to switch providers."
                         )
                     # Rebuild: clear index
-                    log.warning("Rebuilding index due to provider change")
-                    # TODO: implement full index rebuild (clear SQLite + Chroma)
+                    log.warning(
+                        f"Rebuilding index: {existing_meta.embedding_provider}/{existing_meta.embedding_model} "
+                        f"-> {provider.__class__.__name__.replace('Provider', '').lower()}/{provider.model_name}"
+                    )
+
+                    # Close any existing connections before deletion
+                    Storage.force_close_global_connection()
+
+                    # Clear SQLite database
+                    if db_path.exists():
+                        db_path.unlink()
+                        log.info(f"Deleted SQLite database: {db_path}")
+
+                    # Clear Chroma directory
+                    if chroma_dir.exists():
+                        import shutil
+                        shutil.rmtree(chroma_dir)
+                        log.info(f"Deleted Chroma directory: {chroma_dir}")
+
+                    # Recreate directories and schema
+                    chroma_dir.mkdir(parents=True, exist_ok=True)
+                    storage = Storage(db_path)
+                    storage.ensure_schema()
+
+                    # Update meta.json with new provider
+                    meta = IndexMeta(
+                        schema_version=2,
+                        embedding_provider=provider.__class__.__name__.replace("Provider", "").lower(),
+                        embedding_model=provider.model_name,
+                        embedding_dimensions=provider.dimensions,
+                        created_at=now_iso()
+                    )
+                    write_index_meta(meta_path, meta)
             else:
                 # Create meta.json for new index
                 meta = IndexMeta(
