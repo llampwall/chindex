@@ -3,6 +3,13 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
+from prometheus_client import Counter
+
+BRIEF_GENERATED = Counter(
+    "chinvex_brief_generated_total",
+    "Total briefs generated",
+    ["context"]
+)
 
 
 def generate_brief(
@@ -18,6 +25,8 @@ def generate_brief(
     Generate session brief from memory files and recent activity.
     Missing files are silently skipped (graceful degradation).
     """
+    BRIEF_GENERATED.labels(context=context_name).inc()
+
     lines = [
         f"# Session Brief: {context_name}",
         f"Generated: {datetime.utcnow().isoformat()}",

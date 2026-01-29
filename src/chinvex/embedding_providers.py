@@ -6,8 +6,28 @@ import time
 from typing import Protocol
 
 from openai import OpenAI, RateLimitError, APIError
+from prometheus_client import Counter, Histogram
 
 log = logging.getLogger(__name__)
+
+# Metrics
+EMBEDDINGS_TOTAL = Counter(
+    "chinvex_embeddings_total",
+    "Total embedding requests",
+    ["provider"]
+)
+
+EMBEDDINGS_LATENCY = Histogram(
+    "chinvex_embeddings_latency_seconds",
+    "Embedding request latency",
+    ["provider"]
+)
+
+EMBEDDINGS_RETRIES = Counter(
+    "chinvex_embeddings_retries_total",
+    "Total embedding retries",
+    ["provider"]
+)
 
 
 class EmbeddingProvider(Protocol):
@@ -44,10 +64,13 @@ class OllamaProvider:
             raise ValueError(f"Unknown Ollama model: {model}")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        # Implementation will use existing OllamaEmbedder
-        from .embed import OllamaEmbedder
-        embedder = OllamaEmbedder(self.host, self.model)
-        return embedder.embed(texts)
+        EMBEDDINGS_TOTAL.labels(provider="ollama").inc()
+
+        with EMBEDDINGS_LATENCY.labels(provider="ollama").time():
+            # Implementation will use existing OllamaEmbedder
+            from .embed import OllamaEmbedder
+            embedder = OllamaEmbedder(self.host, self.model)
+            return embedder.embed(texts)
 
     @property
     def dimensions(self) -> int:
@@ -88,15 +111,18 @@ class OpenAIProvider:
         Generate embeddings using OpenAI API.
         Handles batching (max 2048 texts) and retries (3x with backoff).
         """
-        all_embeddings = []
+        EMBEDDINGS_TOTAL.labels(provider="openai").inc()
 
-        # Batch texts
-        for i in range(0, len(texts), self.MAX_BATCH_SIZE):
-            batch = texts[i:i + self.MAX_BATCH_SIZE]
-            embeddings = self._embed_batch(batch)
-            all_embeddings.extend(embeddings)
+        with EMBEDDINGS_LATENCY.labels(provider="openai").time():
+            all_embeddings = []
 
-        return all_embeddings
+            # Batch texts
+            for i in range(0, len(texts), self.MAX_BATCH_SIZE):
+                batch = texts[i:i + self.MAX_BATCH_SIZE]
+                embeddings = self._embed_batch(batch)
+                all_embeddings.extend(embeddings)
+
+            return all_embeddings
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a single batch with retry logic."""
@@ -108,6 +134,7 @@ class OpenAIProvider:
                 )
                 return [item.embedding for item in response.data]
             except RateLimitError as e:
+                EMBEDDINGS_RETRIES.labels(provider="openai").inc()
                 if attempt < self.MAX_RETRIES - 1:
                     delay = self.RETRY_DELAY * (2 ** attempt)  # Exponential backoff
                     log.warning(f"Rate limit hit, retrying in {delay}s...")

@@ -3,6 +3,13 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from prometheus_client import Counter
+
+DIGEST_GENERATED = Counter(
+    "chinvex_digest_generated_total",
+    "Total digests generated",
+    ["context"]
+)
 
 
 def generate_digest(
@@ -18,6 +25,8 @@ def generate_digest(
     Generate digest markdown and JSON from ingest runs and watch history.
     Deterministic except for timestamps in the data.
     """
+    DIGEST_GENERATED.labels(context=context_name).inc()
+
     # Calculate since timestamp
     since_ts = datetime.now(timezone.utc) - timedelta(hours=since_hours)
 
