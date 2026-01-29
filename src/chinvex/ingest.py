@@ -370,6 +370,7 @@ def ingest_context(
     from datetime import timezone
     from .embedding_providers import get_provider
     from .index_meta import IndexMeta, read_index_meta, write_index_meta
+    from .ingest_log import log_run_start, log_run_end
     from .util import now_iso
 
     db_path = ctx.index.sqlite_path
@@ -378,11 +379,23 @@ def ingest_context(
     db_path.parent.mkdir(parents=True, exist_ok=True)
     chroma_dir.mkdir(parents=True, exist_ok=True)
 
+    # Generate run ID and setup logging
+    run_id = str(uuid.uuid4())
+    log_path = db_path.parent.parent / ctx.name / "ingest_runs.jsonl"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
     lock_path = db_path.parent / "hybrid.db.lock"
     try:
         with Lock(lock_path, timeout=60):
             storage = Storage(db_path)
             storage.ensure_schema()
+
+            # Log sources being ingested
+            sources = [str(p) for p in ctx.includes.repos]
+            sources.extend([str(p) for p in ctx.includes.chat_roots])
+            if ctx.includes.codex_session_roots:
+                sources.extend([str(p) for p in ctx.includes.codex_session_roots])
+            log_run_start(log_path, run_id, sources=sources)
 
             # Get provider with precedence: CLI > context.json > env > default
             env_provider = os.getenv("CHINVEX_EMBED_PROVIDER")
@@ -437,7 +450,6 @@ def ingest_context(
             vectors = VectorStore(chroma_dir)
 
             # Track results for IngestRunResult
-            run_id = f"run_{uuid.uuid4().hex[:8]}"
             started_at = datetime.now(timezone.utc)
             new_doc_ids: list[str] = []
             updated_doc_ids: list[str] = []
@@ -461,72 +473,88 @@ def ingest_context(
                 "error_doc_ids": error_doc_ids,
             }
 
-            # Ingest repos
-            for repo_path in ctx.includes.repos:
-                if not repo_path.exists():
-                    print(f"Warning: repo path {repo_path} does not exist, skipping.")
-                    continue
-                _ingest_repo_from_context(
-                    ctx, repo_path, storage, embedder, vectors, stats, tracking, rechunk_only
-                )
-
-            # Ingest chat roots
-            for chat_root in ctx.includes.chat_roots:
-                if not chat_root.exists():
-                    print(f"Warning: chat_root {chat_root} does not exist, skipping.")
-                    continue
-                _ingest_chat_from_context(
-                    ctx, chat_root, storage, embedder, vectors, stats, tracking, rechunk_only
-                )
-
-            # Ingest Codex sessions
-            if ctx.includes.codex_session_roots and ctx.codex_appserver and ctx.codex_appserver.enabled:
-                appserver_url = ctx.codex_appserver.base_url
-                _ingest_codex_sessions_from_context(
-                    ctx, appserver_url, storage, embedder, vectors, stats, tracking, rechunk_only
-                )
-
-            # TODO: Ingest note_roots (post-P0)
-
-            finished_at = datetime.now(timezone.utc)
-            storage.record_run(run_id, now_iso(), dump_json(stats))
-
-            # Auto-archive hook (before closing storage)
-            if ctx.archive and ctx.archive.enabled and ctx.archive.auto_archive_on_ingest:
-                from .archive import archive_old_documents
-
-                archived_count = archive_old_documents(
-                    storage,
-                    age_threshold_days=ctx.archive.age_threshold_days,
-                    dry_run=False
-                )
-
-                if archived_count > 0:
-                    print(f"Archived {archived_count} docs (older than {ctx.archive.age_threshold_days}d)")
-
-            storage.close()
-
-            result = IngestRunResult(
-                run_id=run_id,
-                context=ctx.name,
-                started_at=started_at,
-                finished_at=finished_at,
-                new_doc_ids=new_doc_ids,
-                updated_doc_ids=updated_doc_ids,
-                new_chunk_ids=new_chunk_ids,
-                skipped_doc_ids=skipped_doc_ids,
-                error_doc_ids=error_doc_ids,
-                stats=stats
-            )
-
-            # Call post-ingest hook
             try:
-                post_ingest_hook(ctx, result)
-            except Exception as e:
-                log.error(f"Post-ingest hook failed: {e}")
-                # Don't fail ingest on hook failure
+                # Ingest repos
+                for repo_path in ctx.includes.repos:
+                    if not repo_path.exists():
+                        print(f"Warning: repo path {repo_path} does not exist, skipping.")
+                        continue
+                    _ingest_repo_from_context(
+                        ctx, repo_path, storage, embedder, vectors, stats, tracking, rechunk_only
+                    )
 
-            return result
+                # Ingest chat roots
+                for chat_root in ctx.includes.chat_roots:
+                    if not chat_root.exists():
+                        print(f"Warning: chat_root {chat_root} does not exist, skipping.")
+                        continue
+                    _ingest_chat_from_context(
+                        ctx, chat_root, storage, embedder, vectors, stats, tracking, rechunk_only
+                    )
+
+                # Ingest Codex sessions
+                if ctx.includes.codex_session_roots and ctx.codex_appserver and ctx.codex_appserver.enabled:
+                    appserver_url = ctx.codex_appserver.base_url
+                    _ingest_codex_sessions_from_context(
+                        ctx, appserver_url, storage, embedder, vectors, stats, tracking, rechunk_only
+                    )
+
+                # TODO: Ingest note_roots (post-P0)
+
+                finished_at = datetime.now(timezone.utc)
+                storage.record_run(run_id, now_iso(), dump_json(stats))
+
+                # Auto-archive hook (before closing storage)
+                if ctx.archive and ctx.archive.enabled and ctx.archive.auto_archive_on_ingest:
+                    from .archive import archive_old_documents
+
+                    archived_count = archive_old_documents(
+                        storage,
+                        age_threshold_days=ctx.archive.age_threshold_days,
+                        dry_run=False
+                    )
+
+                    if archived_count > 0:
+                        print(f"Archived {archived_count} docs (older than {ctx.archive.age_threshold_days}d)")
+
+                storage.close()
+
+                result = IngestRunResult(
+                    run_id=run_id,
+                    context=ctx.name,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    new_doc_ids=new_doc_ids,
+                    updated_doc_ids=updated_doc_ids,
+                    new_chunk_ids=new_chunk_ids,
+                    skipped_doc_ids=skipped_doc_ids,
+                    error_doc_ids=error_doc_ids,
+                    stats=stats
+                )
+
+                # Log successful run
+                log_run_end(
+                    log_path,
+                    run_id,
+                    status="succeeded",
+                    docs_seen=stats["documents"] + stats["skipped"],
+                    docs_changed=stats["documents"],
+                    chunks_new=stats["chunks"],
+                    chunks_updated=0  # TODO: track updates properly
+                )
+
+                # Call post-ingest hook
+                try:
+                    post_ingest_hook(ctx, result)
+                except Exception as e:
+                    log.error(f"Post-ingest hook failed: {e}")
+                    # Don't fail ingest on hook failure
+
+                return result
+            except Exception as e:
+                # Log failed run
+                log_run_end(log_path, run_id, status="failed", error=str(e))
+                raise
     except LockException as exc:
         raise RuntimeError(
             "Ingest lock is held by another process. Only one ingest can run at a time."
