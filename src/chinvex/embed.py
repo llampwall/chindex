@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Iterable
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+log = logging.getLogger(__name__)
 
 
 def _batched(iterable: list[str], max_items: int, max_bytes: int) -> Iterable[list[str]]:
@@ -78,13 +81,33 @@ class OllamaEmbedder:
         out: list[list[float]] = []
         timeout = (5, 180)  # connect timeout 5s, read timeout 180s
 
-        for batch in _batched(texts, self.max_items_per_batch, self.max_payload_bytes):
+        # Guard against chunks larger than max_payload_bytes
+        oversized_limit = int(self.max_payload_bytes * 0.8)
+        for i, text in enumerate(texts):
+            if len(text) > oversized_limit:
+                log.warning(
+                    f"Chunk {i} size ({len(text)} bytes) exceeds 80% of max_payload_bytes "
+                    f"({oversized_limit} bytes). Consider splitting this chunk further."
+                )
+
+        batches = list(_batched(texts, self.max_items_per_batch, self.max_payload_bytes))
+        total_batches = len(batches)
+
+        for batch_idx, batch in enumerate(batches, 1):
             payload = {"model": self.model, "input": batch}
+            batch_bytes = sum(len(t) for t in batch)
 
             # Retry up to 3 times on transient transport errors
             for attempt in range(3):
                 try:
+                    start_time = time.time()
+                    log.debug(
+                        f"Embedding batch {batch_idx}/{total_batches}: "
+                        f"{len(batch)} items, ~{batch_bytes} bytes, attempt {attempt + 1}/3"
+                    )
+
                     resp = self.session.post(url, json=payload, timeout=timeout)
+                    latency_ms = (time.time() - start_time) * 1000
 
                     # Handle 404 (old Ollama) or context length errors - fallback to single
                     if resp.status_code == 404:
@@ -108,6 +131,10 @@ class OllamaEmbedder:
                     else:
                         out.extend(embeddings)
 
+                    log.debug(
+                        f"Batch {batch_idx}/{total_batches} succeeded: "
+                        f"{latency_ms:.0f}ms, {len(embeddings)} embeddings"
+                    )
                     break  # success
 
                 except (
@@ -117,9 +144,17 @@ class OllamaEmbedder:
                     ConnectionResetError,
                 ) as e:
                     if attempt == 2:  # last attempt
+                        log.error(
+                            f"Batch {batch_idx}/{total_batches} failed after 3 attempts: {type(e).__name__}"
+                        )
                         raise
                     # Exponential backoff: 0.5s → 1s → 2s
-                    time.sleep(0.5 * (2 ** attempt))
+                    backoff = 0.5 * (2 ** attempt)
+                    log.warning(
+                        f"Batch {batch_idx}/{total_batches} retry {attempt + 1}/3 "
+                        f"after {type(e).__name__}, backoff {backoff}s"
+                    )
+                    time.sleep(backoff)
 
         if len(out) != len(texts):
             raise RuntimeError(f"Embedding count mismatch: got {len(out)} expected {len(texts)}")

@@ -385,10 +385,13 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
             new_chunk_ids: list[str] = []
             skipped_doc_ids: list[str] = []
             error_doc_ids: list[str] = []
-            stats = {"documents": 0, "chunks": 0, "skipped": 0}
-            if rechunk_only:
-                stats["embeddings_reused"] = 0
-                stats["embeddings_new"] = 0
+            stats = {
+                "documents": 0,
+                "chunks": 0,
+                "skipped": 0,
+                "embeddings_reused": 0,
+                "embeddings_new": 0,
+            }
 
             # Create tracking dict to pass to helper functions
             tracking = {

@@ -63,8 +63,8 @@ def ingest_cmd(
         typer.echo(f"  Documents: {result.stats['documents']}")
         typer.echo(f"  Chunks: {result.stats['chunks']}")
         typer.echo(f"  Skipped: {result.stats['skipped']}")
-        if rechunk_only and 'embeddings_reused' in result.stats:
-            typer.echo(f"  Rechunk optimization: {result.stats['embeddings_reused']} embeddings reused, {result.stats['embeddings_new']} new")
+        if 'embeddings_reused' in result.stats:
+            typer.echo(f"  Embeddings: {result.stats['embeddings_reused']} reused, {result.stats['embeddings_new']} new")
     else:
         # Old config-based ingestion (deprecated)
         typer.secho("Warning: --config is deprecated. Use --context instead.", fg=typer.colors.YELLOW)
