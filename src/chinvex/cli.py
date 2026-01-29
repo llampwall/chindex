@@ -41,6 +41,7 @@ def ingest_cmd(
     context: str | None = typer.Option(None, "--context", "-c", help="Context name to ingest"),
     config: Path | None = typer.Option(None, "--config", help="Path to old config.json (deprecated)"),
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
+    rechunk_only: bool = typer.Option(False, "--rechunk-only", help="Rechunk only, reuse embeddings when possible"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
@@ -56,12 +57,14 @@ def ingest_cmd(
 
         contexts_root = get_contexts_root()
         ctx = load_context(context, contexts_root)
-        result = ingest_context(ctx, ollama_host_override=ollama_host)
+        result = ingest_context(ctx, ollama_host_override=ollama_host, rechunk_only=rechunk_only)
 
         typer.secho(f"Ingestion complete for context '{context}':", fg=typer.colors.GREEN)
         typer.echo(f"  Documents: {result.stats['documents']}")
         typer.echo(f"  Chunks: {result.stats['chunks']}")
         typer.echo(f"  Skipped: {result.stats['skipped']}")
+        if rechunk_only and 'embeddings_reused' in result.stats:
+            typer.echo(f"  Rechunk optimization: {result.stats['embeddings_reused']} embeddings reused, {result.stats['embeddings_new']} new")
     else:
         # Old config-based ingestion (deprecated)
         typer.secho("Warning: --config is deprecated. Use --context instead.", fg=typer.colors.YELLOW)
@@ -77,7 +80,10 @@ def ingest_cmd(
 @app.command("search")
 def search_cmd(
     query: str = typer.Argument(..., help="Search query"),
-    context: str | None = typer.Option(None, "--context", "-c", help="Context name to search"),
+    context: str | None = typer.Option(None, "--context", "-c", help="Context name to search (deprecated for multi-context)"),
+    contexts: str | None = typer.Option(None, "--contexts", help="Comma-separated context names"),
+    all_contexts: bool = typer.Option(False, "--all", help="Search all contexts"),
+    exclude: str | None = typer.Option(None, "--exclude", help="Comma-separated contexts to exclude (with --all)"),
     config: Path | None = typer.Option(None, "--config", help="Path to old config.json (deprecated)"),
     k: int = typer.Option(8, "--k", help="Top K results"),
     min_score: float = typer.Option(0.35, "--min-score", help="Minimum score threshold"),
@@ -90,14 +96,68 @@ def search_cmd(
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
 
-    if not context and not config:
-        typer.secho("Error: Must provide either --context or --config", fg=typer.colors.RED)
-        raise typer.Exit(code=2)
-
     if source not in {"all", "repo", "chat", "codex_session"}:
         raise typer.BadParameter("source must be one of: all, repo, chat, codex_session")
 
-    if context:
+    # Determine search mode: multi-context, single-context, or legacy config
+    if all_contexts or contexts:
+        # Multi-context search
+        from .context import list_contexts as list_contexts_func
+        from .search import search_multi_context
+
+        contexts_root = get_contexts_root()
+
+        if all_contexts:
+            ctx_list = "all"
+            if exclude:
+                # Filter out excluded contexts
+                all_ctx = [c.name for c in list_contexts_func(contexts_root)]
+                excluded = [x.strip() for x in exclude.split(",")]
+                ctx_list = [c for c in all_ctx if c not in excluded]
+        elif contexts:
+            ctx_list = [x.strip() for x in contexts.split(",")]
+        else:
+            ctx_list = "all"
+
+        # Note: project/repo filters not supported in multi-context mode
+        if project or repo:
+            typer.secho("Warning: --project and --repo filters not supported in multi-context search", fg=typer.colors.YELLOW)
+
+        results = search_multi_context(
+            contexts=ctx_list,
+            query=query,
+            k=k,
+            min_score=min_score,
+            source=source,
+            ollama_host=ollama_host,
+            recency_enabled=not no_recency,
+        )
+
+        if not results:
+            typer.echo("No results found.")
+            return
+
+        # Print results with context tags
+        typer.secho(f"\nSearched contexts: {ctx_list if isinstance(ctx_list, list) else 'all'}", fg=typer.colors.BLUE)
+        typer.secho(f"Found {len(results)} results\n", fg=typer.colors.GREEN)
+
+        # Score distribution stats
+        if results:
+            score_min = min(r.score for r in results)
+            score_max = max(r.score for r in results)
+            context_counts = {}
+            for r in results:
+                context_counts[r.context] = context_counts.get(r.context, 0) + 1
+            typer.echo(f"Score range: {score_min:.3f} - {score_max:.3f}")
+            typer.echo(f"Results by context: {context_counts}\n")
+
+        for i, result in enumerate(results, 1):
+            typer.secho(f"[{i}] [{result.context}] {result.title}", fg=typer.colors.CYAN, bold=True)
+            typer.echo(f"Score: {result.score:.3f} | Type: {result.source_type}")
+            typer.echo(f"Citation: {result.citation}")
+            typer.echo(f"Snippet: {result.snippet}\n")
+
+    elif context:
         # New context-based search
         from .context import load_context
         from .search import search_context
@@ -126,7 +186,7 @@ def search_cmd(
             typer.echo(f"Score: {result.score:.3f} | Type: {result.source_type}")
             typer.echo(f"Citation: {result.citation}")
             typer.echo(f"Snippet: {result.snippet}")
-    else:
+    elif config:
         # Old config-based search (deprecated)
         typer.secho("Warning: --config is deprecated. Use --context instead.", fg=typer.colors.YELLOW)
 
@@ -150,6 +210,10 @@ def search_cmd(
             typer.echo(f"   {result.title}")
             typer.echo(f"   {result.citation}")
             typer.echo(f"   {result.snippet}")
+    else:
+        # No context flags provided
+        typer.secho("Error: Must specify --context, --contexts, --all, or --config", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
 
 
 @context_app.command("create")
@@ -361,6 +425,59 @@ def watch_remove_cmd(
     typer.secho(f"Removed watch '{id}'", fg=typer.colors.GREEN)
 
 
+@watch_app.command("history")
+def watch_history_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    since: str | None = typer.Option(None, "--since", help="Filter by time (e.g., 7d, 1h)"),
+    id: str | None = typer.Option(None, "--id", help="Filter by watch ID"),
+    limit: int = typer.Option(50, "--limit", help="Maximum entries to show"),
+    format: str = typer.Option("table", "--format", help="Output format: table, json"),
+) -> None:
+    """View watch history."""
+    from datetime import datetime, timedelta
+    from .context import load_context
+    from .watch.history import read_watch_history, format_history_table, format_history_json
+
+    contexts_root = get_contexts_root()
+    ctx = load_context(context, contexts_root)
+
+    # Parse since filter
+    since_ts = None
+    if since:
+        since_ts = parse_time_delta(since)
+
+    # Read history
+    entries = read_watch_history(
+        ctx,
+        since=since_ts,
+        watch_id=id,
+        limit=limit,
+    )
+
+    # Format output
+    if format == "json":
+        typer.echo(format_history_json(entries))
+    else:
+        typer.echo(format_history_table(entries))
+
+
+def parse_time_delta(s: str) -> datetime:
+    """Parse time delta string like '7d', '1h' into datetime."""
+    from datetime import datetime, timedelta
+
+    if s.endswith('d'):
+        days = int(s[:-1])
+        return datetime.utcnow() - timedelta(days=days)
+    elif s.endswith('h'):
+        hours = int(s[:-1])
+        return datetime.utcnow() - timedelta(hours=hours)
+    elif s.endswith('m'):
+        minutes = int(s[:-1])
+        return datetime.utcnow() - timedelta(minutes=minutes)
+    else:
+        raise ValueError(f"Invalid time delta: {s}")
+
+
 # Add gateway subcommand group
 gateway_app = typer.Typer(help="Gateway server commands")
 app.add_typer(gateway_app, name="gateway")
@@ -423,6 +540,8 @@ def gateway_token_generate():
     typer.echo()
     typer.echo("Add this to your environment or secrets manager.")
     typer.echo("For ChatGPT Actions, use this token in the API Key field.")
+    typer.echo()
+    typer.echo("If using start_gateway.ps1, update the token in that file.")
 
 
 @gateway_app.command("token-rotate")
@@ -453,6 +572,7 @@ def gateway_token_rotate():
     typer.echo("Update this in:")
     typer.echo("- Environment variables")
     typer.echo("- ChatGPT Actions configuration")
+    typer.echo("- start_gateway.ps1 (if using that script)")
 
 
 @gateway_app.command("status")
@@ -486,6 +606,104 @@ def gateway_status():
     typer.echo(f"  Per hour: {config.rate_limit.requests_per_hour}")
     typer.echo()
     typer.echo(f"Audit log: {config.audit_log_path}")
+
+
+@app.command()
+def archive(
+    action: str = typer.Argument(..., help="Action: run, list, restore, purge"),
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    older_than: str | None = typer.Option(None, "--older-than", help="Age threshold (e.g., 180d)"),
+    force: bool = typer.Option(False, "--force", help="Execute action (not dry-run)"),
+    doc_id: str | None = typer.Option(None, "--doc-id", help="Document ID for restore"),
+    limit: int = typer.Option(50, "--limit", help="Limit for list command"),
+):
+    """Manage archive tier."""
+    from chinvex.context import load_context
+    from chinvex.archive import archive_old_documents
+    from chinvex.storage import Storage
+
+    contexts_root = get_contexts_root()
+    ctx = load_context(context, contexts_root)
+    db_path = ctx.index.sqlite_path
+    storage = Storage(db_path)
+    storage.ensure_schema()
+
+    if action == "run":
+        # Parse threshold
+        if older_than:
+            if older_than.endswith('d'):
+                days = int(older_than[:-1])
+            else:
+                raise ValueError(f"Invalid threshold format: {older_than}")
+        else:
+            days = 180  # Default
+
+        # Run archive
+        count = archive_old_documents(storage, age_threshold_days=days, dry_run=not force)
+
+        if force:
+            print(f"Archived {count} docs (older than {days}d)")
+        else:
+            print(f"Would archive {count} docs (dry-run)")
+            print("Use --force to execute")
+
+    elif action == "list":
+        from chinvex.archive import list_archived_documents
+
+        docs = list_archived_documents(storage, limit=limit)
+
+        if not docs:
+            print("No archived documents found")
+        else:
+            print(f"{'Doc ID':<40} {'Type':<10} {'Title':<40} {'Archived At':<20}")
+            print("-" * 115)
+            for doc in docs:
+                doc_id = doc["doc_id"][:39]
+                source_type = doc["source_type"][:9]
+                title = (doc["title"] or "")[:39]
+                archived_at = doc["archived_at"][:19] if doc["archived_at"] else "N/A"
+                print(f"{doc_id:<40} {source_type:<10} {title:<40} {archived_at:<20}")
+
+    elif action == "restore":
+        from chinvex.archive import restore_document
+
+        if not doc_id:
+            print("Error: --doc-id required for restore")
+            raise typer.Exit(1)
+
+        success = restore_document(storage, doc_id)
+
+        if success:
+            print(f"Restored document: {doc_id}")
+        else:
+            print(f"Document not found or already active: {doc_id}")
+            raise typer.Exit(1)
+
+    elif action == "purge":
+        from chinvex.archive import purge_archived_documents
+
+        if not older_than:
+            print("Error: --older-than required for purge")
+            raise typer.Exit(1)
+
+        # Parse threshold
+        if older_than.endswith('d'):
+            days = int(older_than[:-1])
+        else:
+            raise ValueError(f"Invalid threshold format: {older_than}")
+
+        # Run purge
+        count = purge_archived_documents(storage, age_threshold_days=days, dry_run=not force)
+
+        if force:
+            print(f"Purged {count} docs permanently (older than {days}d)")
+        else:
+            print(f"Would purge {count} docs (dry-run)")
+            print("Use --force to execute")
+
+    else:
+        print(f"Unknown action: {action}")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

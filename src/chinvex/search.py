@@ -19,6 +19,7 @@ class SearchResult:
     title: str
     citation: str
     snippet: str
+    context: str | None = None  # Source context for multi-context search
 
 
 @dataclass
@@ -39,6 +40,7 @@ def search(
     repo: str | None = None,
     ollama_host_override: str | None = None,
     weights: dict[str, float] | None = None,
+    include_archive: bool = False,
 ) -> list[SearchResult]:
     db_path = config.index_dir / "hybrid.db"
     chroma_dir = config.index_dir / "chroma"
@@ -67,6 +69,7 @@ def search(
         project=project,
         repo=repo,
         weights=weights,
+        include_archive=include_archive,
     )
     results = [
         SearchResult(
@@ -95,6 +98,7 @@ def search_chunks(
     project: str | None = None,
     repo: str | None = None,
     weights: dict[str, float] | None = None,
+    include_archive: bool = False,
 ) -> list[ScoredChunk]:
     """
     Hybrid search with score normalization and weight renormalization.
@@ -102,6 +106,7 @@ def search_chunks(
     Args:
         weights: Optional source-type weights dict (e.g., {"repo": 1.0, "chat": 0.8})
                  If None, no weight adjustment applied.
+        include_archive: If False (default), exclude archived documents from results.
     """
     filters = {}
     if source in {"repo", "chat", "codex_session"}:
@@ -110,6 +115,8 @@ def search_chunks(
         filters["project"] = project
     if repo:
         filters["repo"] = repo
+    if not include_archive:
+        filters["archived"] = 0
 
     # Perform FTS search
     lex_rows = storage.search_fts(query, limit=30, filters=filters)
@@ -122,6 +129,8 @@ def search_chunks(
         where["project"] = project
     if repo:
         where["repo"] = repo
+    if not include_archive:
+        where["archived"] = 0
 
     query_embedding = embedder.embed([query])
     vec_result = vectors.query(query_embedding, n_results=30, where=where)
@@ -351,3 +360,87 @@ def hybrid_search_from_context(
         )
 
     return results
+
+
+def search_multi_context(
+    contexts: list[str] | str,
+    query: str,
+    k: int = 10,
+    min_score: float = 0.35,
+    source: str = "all",
+    ollama_host: str | None = None,
+    recency_enabled: bool = True,
+) -> list[SearchResult]:
+    """
+    Search across multiple contexts, merge results by score.
+
+    Args:
+        contexts: List of context names, or "all" for all contexts
+        query: Search query
+        k: Total number of results to return (not per-context)
+        min_score: Minimum score threshold
+        source: Filter by source type (all/repo/chat/codex_session)
+        ollama_host: Ollama host override
+        recency_enabled: Enable recency decay
+
+    Returns:
+        List of SearchResult objects sorted by score descending
+    """
+    from pathlib import Path
+    import os
+
+    # Get contexts root
+    contexts_root_str = os.getenv("CHINVEX_CONTEXTS_ROOT", "P:/ai_memory/contexts")
+    contexts_root = Path(contexts_root_str)
+
+    # Expand "all" to all available contexts
+    if contexts == "all":
+        from .context import list_contexts
+        contexts = [c.name for c in list_contexts(contexts_root)]
+
+    # Cap contexts to prevent slowdown
+    max_contexts = 10  # TODO: Make configurable
+    if len(contexts) > max_contexts:
+        contexts = contexts[:max_contexts]
+
+    # Per-context cap: fetch more than k to ensure good merged results
+    k_per_context = min(k * 2, 20)
+
+    # Gather results from each context
+    all_results = []
+    for ctx_name in contexts:
+        try:
+            from .context import load_context
+            ctx = load_context(ctx_name, contexts_root)
+            results = search_context(
+                ctx=ctx,
+                query=query,
+                k=k_per_context,
+                min_score=min_score,
+                source=source,
+                ollama_host_override=ollama_host,
+                recency_enabled=recency_enabled,
+            )
+            # Tag each result with source context
+            for r in results:
+                r.context = ctx_name
+            all_results.extend(results)
+        except Exception as e:
+            # Log warning but continue with other contexts
+            print(f"Warning: Failed to search context {ctx_name}: {e}")
+            continue
+
+    # Sort by score descending, take top k
+    all_results.sort(key=lambda r: r.score, reverse=True)
+    final_results = all_results[:k]
+
+    # Debug logging: score distribution across contexts
+    if final_results:
+        score_min = min(r.score for r in final_results)
+        score_max = max(r.score for r in final_results)
+        context_counts = {}
+        for r in final_results:
+            context_counts[r.context] = context_counts.get(r.context, 0) + 1
+        print(f"[DEBUG] Cross-context scores: min={score_min:.3f}, max={score_max:.3f}, by_context={context_counts}")
+
+    return final_results
