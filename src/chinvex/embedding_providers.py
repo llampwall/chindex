@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Protocol
+
+from openai import OpenAI, RateLimitError, APIError
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +68,10 @@ class OpenAIProvider:
         "text-embedding-ada-002": 1536,
     }
 
+    MAX_BATCH_SIZE = 2048
+    MAX_RETRIES = 3
+    RETRY_DELAY = 1.0
+
     def __init__(self, api_key: str | None, model: str):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
@@ -74,9 +81,41 @@ class OpenAIProvider:
         if model not in self.MODEL_DIMS:
             raise ValueError(f"Unknown OpenAI model: {model}")
 
+        self.client = OpenAI(api_key=self.api_key)
+
     def embed(self, texts: list[str]) -> list[list[float]]:
-        # Will implement OpenAI API call in next task
-        raise NotImplementedError("OpenAI embedding not yet implemented")
+        """
+        Generate embeddings using OpenAI API.
+        Handles batching (max 2048 texts) and retries (3x with backoff).
+        """
+        all_embeddings = []
+
+        # Batch texts
+        for i in range(0, len(texts), self.MAX_BATCH_SIZE):
+            batch = texts[i:i + self.MAX_BATCH_SIZE]
+            embeddings = self._embed_batch(batch)
+            all_embeddings.extend(embeddings)
+
+        return all_embeddings
+
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed a single batch with retry logic."""
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                response = self.client.embeddings.create(
+                    input=texts,
+                    model=self.model
+                )
+                return [item.embedding for item in response.data]
+            except RateLimitError as e:
+                if attempt < self.MAX_RETRIES - 1:
+                    delay = self.RETRY_DELAY * (2 ** attempt)  # Exponential backoff
+                    log.warning(f"Rate limit hit, retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
+                    raise RuntimeError(f"OpenAI rate limit exceeded after {self.MAX_RETRIES} attempts") from e
+            except APIError as e:
+                raise RuntimeError(f"OpenAI API error: {e}") from e
 
     @property
     def dimensions(self) -> int:
