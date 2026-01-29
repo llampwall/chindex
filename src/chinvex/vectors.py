@@ -11,13 +11,52 @@ class VectorStore:
         self.client = chromadb.PersistentClient(path=str(persist_dir))
         self.collection = self.client.get_or_create_collection(name=collection_name)
 
-    def upsert(self, ids: list[str], documents: list[str], metadatas: list[dict], embeddings: list[list[float]]) -> None:
-        self.collection.upsert(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
+    def upsert(
+        self,
+        ids: list[str],
+        documents: list[str],
+        metadatas: list[dict],
+        embeddings: list[list[float]],
+        max_batch_size: int = 5000,
+    ) -> None:
+        """
+        Upsert vectors in batches to avoid Chroma's batch size limit.
 
-    def delete(self, ids: Iterable[str]) -> None:
+        Chroma has a max batch size limit (typically ~5461). Batch larger
+        upserts to stay under the limit.
+        """
+        total = len(ids)
+        if total <= max_batch_size:
+            self.collection.upsert(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
+            return
+
+        # Batch large upserts
+        for i in range(0, total, max_batch_size):
+            end = min(i + max_batch_size, total)
+            self.collection.upsert(
+                ids=ids[i:end],
+                documents=documents[i:end],
+                metadatas=metadatas[i:end],
+                embeddings=embeddings[i:end],
+            )
+
+    def delete(self, ids: Iterable[str], max_batch_size: int = 5000) -> None:
+        """
+        Delete vectors in batches to avoid Chroma's batch size limit.
+        """
         ids_list = list(ids)
-        if ids_list:
+        if not ids_list:
+            return
+
+        total = len(ids_list)
+        if total <= max_batch_size:
             self.collection.delete(ids=ids_list)
+            return
+
+        # Batch large deletes
+        for i in range(0, total, max_batch_size):
+            end = min(i + max_batch_size, total)
+            self.collection.delete(ids=ids_list[i:end])
 
     def query(self, query_embeddings: list[list[float]], n_results: int, where: dict | None = None) -> dict:
         if where:
