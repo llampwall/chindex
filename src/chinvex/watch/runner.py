@@ -17,7 +17,7 @@ def run_watches(
     Run all enabled watches against newly ingested chunks.
 
     Args:
-        context: Context object with search capability
+        context: ContextConfig object
         new_chunk_ids: List of newly created chunk IDs
         watches: List of Watch objects
         timeout_per_watch: Timeout in seconds per watch
@@ -30,6 +30,12 @@ def run_watches(
     """
     hits = []
 
+    if not new_chunk_ids:
+        return hits
+
+    # Convert new_chunk_ids to set for fast lookup
+    new_chunk_id_set = set(new_chunk_ids)
+
     for watch in watches:
         if not watch.enabled:
             continue
@@ -37,17 +43,33 @@ def run_watches(
         try:
             # Import search function (avoid circular import)
             from chinvex.search import search_chunks
+            from chinvex.storage import Storage
+            from chinvex.vectors import VectorStore
+            from chinvex.embed import OllamaEmbedder
 
-            # Search only new chunks
+            # Initialize search components
+            db_path = context.index.sqlite_path
+            chroma_dir = context.index.chroma_dir
+            storage = Storage(db_path)
+            vectors = VectorStore(chroma_dir)
+            embedder = OllamaEmbedder(context.ollama.base_url, context.ollama.embed_model)
+
+            # Search all chunks
             results = search_chunks(
-                context=context,
+                storage=storage,
+                vectors=vectors,
+                embedder=embedder,
                 query=watch.query,
-                chunk_ids=new_chunk_ids,
-                k=10
+                k=50,  # Get more results to filter down
+                min_score=0.0,  # Filter by min_score after
+                weights=context.weights
             )
 
-            # Filter by min_score
-            matching = [r for r in results if r.blended_score >= watch.min_score]
+            # Filter to only new chunks and apply min_score
+            matching = [
+                r for r in results
+                if r.chunk_id in new_chunk_id_set and r.score >= watch.min_score
+            ]
 
             if matching:
                 hits.append(WatchHit(
@@ -56,8 +78,8 @@ def run_watches(
                     hits=[
                         {
                             "chunk_id": r.chunk_id,
-                            "score": r.blended_score,
-                            "snippet": r.text[:200]
+                            "score": r.score,
+                            "snippet": r.row["text"][:200] if r.row else ""
                         }
                         for r in matching[:5]
                     ],
