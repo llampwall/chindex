@@ -892,5 +892,81 @@ def _push_ntfy_notification(context: str, digest_path: Path) -> None:
         typer.secho(f"Failed to send notification: {e}", fg=typer.colors.RED)
 
 
+@app.command("brief")
+def brief_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    output: Path | None = typer.Option(None, "--output", help="Output file (default: stdout)"),
+    repo_root: Path | None = typer.Option(None, "--repo-root", help="Repository root (auto-detect if not provided)"),
+) -> None:
+    """Generate session brief for a context."""
+    from .context import load_context
+    from .brief import generate_brief
+
+    contexts_root = get_contexts_root()
+    ctx = load_context(context, contexts_root)
+
+    # Auto-detect repo root
+    if not repo_root:
+        repo_root = _find_repo_root(Path.cwd())
+
+    # Setup paths
+    state_md = repo_root / "docs" / "memory" / "STATE.md" if repo_root else None
+    constraints_md = repo_root / "docs" / "memory" / "CONSTRAINTS.md" if repo_root else None
+    decisions_md = repo_root / "docs" / "memory" / "DECISIONS.md" if repo_root else None
+
+    context_dir = contexts_root / context
+    digests_dir = context_dir / "digests"
+    latest_digest = _find_latest_digest(digests_dir)
+    watch_history_log = context_dir / "watch_history.jsonl"
+
+    # Generate brief
+    if output:
+        output_path = output
+    else:
+        import tempfile
+        temp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False)
+        output_path = Path(temp.name)
+        temp.close()
+
+    generate_brief(
+        context_name=context,
+        state_md=state_md,
+        constraints_md=constraints_md,
+        decisions_md=decisions_md,
+        latest_digest=latest_digest,
+        watch_history_log=watch_history_log,
+        output=output_path
+    )
+
+    if output:
+        typer.secho(f"Brief generated: {output_path}", fg=typer.colors.GREEN)
+    else:
+        # Print to stdout
+        content = output_path.read_text()
+        typer.echo(content)
+        output_path.unlink()  # Clean up temp file
+
+
+def _find_repo_root(start_dir: Path) -> Path | None:
+    """Walk up to find repo root (has .git or docs/memory)."""
+    current = start_dir
+    for _ in range(5):  # Max 5 levels
+        if (current / ".git").exists() or (current / "docs" / "memory").exists():
+            return current
+        if current.parent == current:  # Reached filesystem root
+            break
+        current = current.parent
+    return None
+
+
+def _find_latest_digest(digests_dir: Path) -> Path | None:
+    """Find most recent digest by filename (YYYY-MM-DD.md)."""
+    if not digests_dir.exists():
+        return None
+
+    digests = sorted(digests_dir.glob("*.md"), reverse=True)
+    return digests[0] if digests else None
+
+
 if __name__ == "__main__":
     app()
