@@ -1055,5 +1055,61 @@ def hook_status():
     hook_status_cmd()
 
 
+@app.command()
+def archive(
+    context: str = typer.Option(..., help="Context name"),
+    apply_constraints: bool = typer.Option(False, help="Apply age and count constraints"),
+    age_days: int = typer.Option(None, help="Archive chunks older than N days"),
+    max_chunks: int = typer.Option(None, help="Keep only N most recent chunks"),
+    quiet: bool = typer.Option(False, help="Suppress output"),
+):
+    """
+    Archive old chunks to reduce active index size.
+
+    Use --apply-constraints to read from context.json constraints config.
+    Or specify --age-days and/or --max-chunks explicitly.
+    """
+    from .context import load_context
+    from .context_cli import get_contexts_root
+    from .archive import archive_by_age, archive_by_count
+    from .storage import Storage
+
+    contexts_root = get_contexts_root()
+    ctx_config = load_context(context, contexts_root)
+
+    db_path = ctx_config.index.sqlite_path
+    storage = Storage(db_path)
+
+    # Determine constraints
+    if apply_constraints:
+        # Read from context config
+        constraints = getattr(ctx_config, "constraints", None)
+        if constraints:
+            age_days = constraints.get("archive_after_days", 90)
+            max_chunks = constraints.get("max_chunks", 10000)
+        else:
+            if not quiet:
+                typer.echo("No constraints defined in context config")
+            storage.close()
+            return
+
+    # Apply age constraint
+    if age_days:
+        stats = archive_by_age(storage, age_days)
+        if not quiet:
+            typer.echo(f"Archived {stats.archived_count} chunks older than {age_days} days")
+
+    # Apply count constraint
+    if max_chunks:
+        stats = archive_by_count(storage, max_chunks)
+        if not quiet:
+            typer.echo(f"Archived {stats.archived_count} chunks to stay under {max_chunks}")
+
+    storage.close()
+
+    if not quiet:
+        typer.secho("Archive complete", fg=typer.colors.GREEN)
+
+
 if __name__ == "__main__":
     app()

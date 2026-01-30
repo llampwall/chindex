@@ -1,7 +1,21 @@
 """Archive tier implementation."""
-from datetime import datetime, timedelta
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from .storage import Storage
 from .util import now_iso
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class ArchiveStats:
+    """Statistics from archive operation."""
+    archived_count: int
+    total_chunks: int
+    active_chunks: int
 
 
 def get_doc_age_timestamp(row: dict) -> datetime | None:
@@ -178,3 +192,118 @@ def purge_archived_documents(storage: Storage, age_threshold_days: int, dry_run:
         storage.conn.commit()
 
     return len(candidates)
+
+
+def archive_by_age(storage: Storage, age_threshold_days: int) -> ArchiveStats:
+    """
+    Archive chunks older than threshold.
+
+    Args:
+        storage: Storage instance
+        age_threshold_days: Archive chunks older than this many days
+
+    Returns:
+        ArchiveStats with counts
+    """
+    threshold_dt = datetime.now(timezone.utc) - timedelta(days=age_threshold_days)
+    threshold_str = threshold_dt.isoformat()
+
+    # Ensure archived column exists
+    _ensure_archived_column(storage)
+
+    # Count total and active chunks before
+    total_before = storage.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+    active_before = storage.conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE archived = 0"
+    ).fetchone()[0]
+
+    # Archive old chunks (only those not already archived)
+    cursor = storage.conn.execute(
+        """
+        UPDATE chunks
+        SET archived = 1
+        WHERE updated_at < ?
+          AND archived = 0
+        """,
+        (threshold_str,)
+    )
+
+    archived_count = cursor.rowcount
+    storage.conn.commit()
+
+    log.info(f"Archived {archived_count} chunks older than {age_threshold_days} days")
+
+    return ArchiveStats(
+        archived_count=archived_count,
+        total_chunks=total_before,
+        active_chunks=active_before - archived_count
+    )
+
+
+def archive_by_count(storage: Storage, max_chunks: int) -> ArchiveStats:
+    """
+    Archive oldest chunks to keep total under max_chunks.
+
+    Args:
+        storage: Storage instance
+        max_chunks: Maximum active chunks to keep
+
+    Returns:
+        ArchiveStats with counts
+    """
+    _ensure_archived_column(storage)
+
+    # Count active chunks
+    active_count = storage.conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE archived = 0"
+    ).fetchone()[0]
+
+    total_count = storage.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+
+    if active_count <= max_chunks:
+        log.info(f"Active chunks ({active_count}) under limit ({max_chunks})")
+        return ArchiveStats(
+            archived_count=0,
+            total_chunks=total_count,
+            active_chunks=active_count
+        )
+
+    # Archive oldest chunks
+    to_archive = active_count - max_chunks
+
+    cursor = storage.conn.execute(
+        """
+        UPDATE chunks
+        SET archived = 1
+        WHERE chunk_id IN (
+            SELECT chunk_id FROM chunks
+            WHERE archived = 0
+            ORDER BY updated_at ASC
+            LIMIT ?
+        )
+        """,
+        (to_archive,)
+    )
+
+    archived_count = cursor.rowcount
+    storage.conn.commit()
+
+    log.info(f"Archived {archived_count} oldest chunks to stay under {max_chunks}")
+
+    return ArchiveStats(
+        archived_count=archived_count,
+        total_chunks=total_count,
+        active_chunks=max_chunks
+    )
+
+
+def _ensure_archived_column(storage: Storage) -> None:
+    """Ensure archived column exists in chunks table."""
+    # Check if column exists
+    cursor = storage.conn.execute("PRAGMA table_info(chunks)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if "archived" not in columns:
+        log.info("Adding archived column to chunks table")
+        storage.conn.execute("ALTER TABLE chunks ADD COLUMN archived INTEGER DEFAULT 0")
+        storage.conn.commit()
