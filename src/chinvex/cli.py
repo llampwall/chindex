@@ -32,6 +32,10 @@ app.add_typer(watch_app, name="watch")
 digest_app = typer.Typer(help="Generate digest reports")
 app.add_typer(digest_app, name="digest")
 
+# Add sync subcommand group
+sync_app = typer.Typer(help="File watcher sync daemon")
+app.add_typer(sync_app, name="sync")
+
 
 def _load_config(config_path: Path):
     try:
@@ -966,6 +970,41 @@ def _find_latest_digest(digests_dir: Path) -> Path | None:
 
     digests = sorted(digests_dir.glob("*.md"), reverse=True)
     return digests[0] if digests else None
+
+
+@sync_app.command("start")
+def sync_start():
+    """Start the sync daemon"""
+    from .sync.cli import sync_start_cmd
+    sync_start_cmd()
+
+
+@sync_app.command("stop")
+def sync_stop():
+    """Stop the sync daemon"""
+    from .sync.cli import sync_stop_cmd
+    sync_stop_cmd()
+
+
+@sync_app.command("status")
+def sync_status():
+    """Show sync daemon status"""
+    from .sync.cli import sync_status_cmd
+    sync_status_cmd()
+
+
+@sync_app.command("ensure-running")
+def sync_ensure_running():
+    """Start daemon if not running (idempotent)"""
+    from .sync.cli import sync_ensure_running_cmd
+    sync_ensure_running_cmd()
+
+
+@sync_app.command("reconcile-sources")
+def sync_reconcile_sources():
+    """Update watcher sources from contexts (restarts watcher)"""
+    from .sync.cli import sync_reconcile_sources_cmd
+    sync_reconcile_sources_cmd()
 
 
 if __name__ == "__main__":
