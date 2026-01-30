@@ -236,16 +236,34 @@ def sync_reconcile_sources_cmd() -> None:
 
 
 def _start_daemon_process(state_dir: Path) -> None:
-    """
-    Start daemon process in background.
+    """Start daemon process in background."""
+    from .discovery import discover_watch_sources
+    from ..context_cli import get_contexts_root
 
-    For now, this is a stub. Full implementation will spawn watchdog process.
-    """
-    # TODO: Implement actual daemon process spawn
-    # For testing, just write a PID file with a fake PID
-    dm = DaemonManager(state_dir)
+    # Get contexts root
+    try:
+        contexts_root = get_contexts_root()
+    except Exception as e:
+        typer.secho(f"Failed to get contexts root: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
 
-    # Mock: write a fake PID (in real impl, this would be subprocess PID)
-    # Use PID 99999 as a stub that won't conflict with real processes
-    dm.write_pid(99999)
-    dm.write_heartbeat()
+    # Spawn daemon process
+    python_exe = sys.executable
+
+    # Run as detached background process
+    if sys.platform == "win32":
+        # Windows: use CREATE_NEW_PROCESS_GROUP and DETACHED_PROCESS
+        subprocess.Popen(
+            [python_exe, "-m", "chinvex.sync.process", str(state_dir), str(contexts_root)],
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        # Unix: use nohup-style detachment
+        subprocess.Popen(
+            [python_exe, "-m", "chinvex.sync.process", str(state_dir), str(contexts_root)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
