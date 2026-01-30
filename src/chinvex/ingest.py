@@ -567,15 +567,11 @@ def ingest_context(
                     if archived_count > 0:
                         print(f"Archived {archived_count} docs (older than {ctx.archive.age_threshold_days}d)")
 
-                # Get watch stats before closing storage
-                from .watch_storage import WatchStorage
-                watch_storage = WatchStorage(db_path)
-                watches = watch_storage.list_watches()
-                watches_active = len([w for w in watches if w["active"]])
-                watches_pending_hits = sum(w["pending_hits"] for w in watches)
-                watch_storage.close()
-
                 storage.close()
+
+                # Get watch stats (default to 0 for now - will be implemented in P1.4)
+                watches_active = 0
+                watches_pending_hits = 0
 
                 # Write STATUS.json after ingest
                 from .status import write_status_json
@@ -1181,15 +1177,11 @@ def ingest_delta(ctx, paths, *, ollama_host_override=None, embed_provider=None):
             
             finished_at = datetime.now(timezone.utc)
 
-            # Get watch stats before closing storage
-            from .watch_storage import WatchStorage
-            watch_storage = WatchStorage(db_path)
-            watches = watch_storage.list_watches()
-            watches_active = len([w for w in watches if w["active"]])
-            watches_pending_hits = sum(w["pending_hits"] for w in watches)
-            watch_storage.close()
-
             storage.close()
+
+            # Get watch stats (default to 0 for now - will be implemented in P1.4)
+            watches_active = 0
+            watches_pending_hits = 0
 
             # Write STATUS.json after delta ingest
             from .status import write_status_json
