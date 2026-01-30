@@ -21,7 +21,7 @@ def register_sweep_task(contexts_root: Path, ntfy_topic: str = "") -> None:
         ntfy_topic: ntfy.sh topic for alerts
     """
     # Find the scheduled_sweep.ps1 script
-    script_path = Path(__file__).parent.parent.parent / "scripts" / "scheduled_sweep.ps1"
+    script_path = Path(__file__).parent.parent.parent.parent / "scripts" / "scheduled_sweep.ps1"
     if not script_path.exists():
         raise FileNotFoundError(f"Sweep script not found: {script_path}")
 

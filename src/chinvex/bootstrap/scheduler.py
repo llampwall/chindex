@@ -82,6 +82,8 @@ def _generate_task_xml(
     ntfy_topic: str
 ) -> str:
     """Generate Task Scheduler XML definition."""
+    from datetime import datetime
+
     # Build PowerShell command with arguments
     args_list = [
         f"-ContextsRoot \"{contexts_root}\""
@@ -90,6 +92,9 @@ def _generate_task_xml(
         args_list.append(f"-NtfyTopic \"{ntfy_topic}\"")
 
     args_str = " ".join(args_list)
+
+    # Use current time for StartBoundary
+    start_boundary = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     xml = f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -103,8 +108,11 @@ def _generate_task_xml(
         <Interval>PT30M</Interval>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
-      <StartBoundary>2026-01-01T00:00:00</StartBoundary>
+      <StartBoundary>{start_boundary}</StartBoundary>
       <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
     </CalendarTrigger>
   </Triggers>
   <Settings>
@@ -251,7 +259,7 @@ def register_morning_brief_task(
         ntfy_topic: ntfy.sh topic for morning brief
         time: Time to run (HH:MM format, default 07:00)
     """
-    script_path = Path(__file__).parent.parent.parent / "scripts" / "morning_brief.ps1"
+    script_path = Path(__file__).parent.parent.parent.parent / "scripts" / "morning_brief.ps1"
     if not script_path.exists():
         raise FileNotFoundError(f"Morning brief script not found: {script_path}")
 
@@ -311,6 +319,8 @@ def _generate_morning_brief_xml(
     time: str
 ) -> str:
     """Generate Task Scheduler XML for morning brief."""
+    from datetime import datetime, timedelta
+
     # Build arguments
     args_list = [f"-ContextsRoot \"{contexts_root}\""]
     if ntfy_topic:
@@ -320,7 +330,16 @@ def _generate_morning_brief_xml(
 
     # Parse time (HH:MM)
     hour, minute = time.split(":")
-    start_boundary = f"2026-01-01T{hour}:{minute}:00"
+
+    # Use today's date with specified time, or tomorrow if time has passed
+    now = datetime.now()
+    target_time = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
+
+    if target_time <= now:
+        # Time has passed today, use tomorrow
+        target_time += timedelta(days=1)
+
+    start_boundary = target_time.strftime("%Y-%m-%dT%H:%M:%S")
 
     xml = f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -335,6 +354,9 @@ def _generate_morning_brief_xml(
       </Repetition>
       <StartBoundary>{start_boundary}</StartBoundary>
       <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
     </CalendarTrigger>
   </Triggers>
   <Settings>
