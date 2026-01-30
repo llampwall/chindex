@@ -36,6 +36,10 @@ app.add_typer(digest_app, name="digest")
 sync_app = typer.Typer(help="File watcher sync daemon")
 app.add_typer(sync_app, name="sync")
 
+# Add hook subcommand group
+hook_app = typer.Typer(help="Git hook management")
+app.add_typer(hook_app, name="hook")
+
 
 def _load_config(config_path: Path):
     try:
@@ -1028,6 +1032,27 @@ def sync_reconcile_sources():
     """Update watcher sources from contexts (restarts watcher)"""
     from .sync.cli import sync_reconcile_sources_cmd
     sync_reconcile_sources_cmd()
+
+
+@hook_app.command("install")
+def hook_install(context: str = typer.Option(None, help="Context name (inferred from folder if omitted)")):
+    """Install post-commit hook in current git repository"""
+    from .hooks.cli import hook_install_cmd
+    hook_install_cmd(context)
+
+
+@hook_app.command("uninstall")
+def hook_uninstall():
+    """Uninstall post-commit hook from current repository"""
+    from .hooks.cli import hook_uninstall_cmd
+    hook_uninstall_cmd()
+
+
+@hook_app.command("status")
+def hook_status():
+    """Show git hook installation status"""
+    from .hooks.cli import hook_status_cmd
+    hook_status_cmd()
 
 
 if __name__ == "__main__":
