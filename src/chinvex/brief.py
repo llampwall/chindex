@@ -98,24 +98,40 @@ def _extract_state_sections(state_md: Path) -> list[str]:
 
 
 def _extract_constraints_top(constraints_md: Path) -> list[str]:
-    """Extract content until first ## heading."""
+    """Extract only Infrastructure, Rules, and Hazards sections from CONSTRAINTS.md."""
     content = constraints_md.read_text()
     lines = content.split("\n")
 
+    # Exact headers to extract
+    target_headers = {"## Infrastructure", "## Rules", "## Hazards"}
+
     result = []
-    seen_first_section = False
+    in_target_section = False
+    current_section_lines = []
 
     for line in lines:
         if line.startswith("# Constraints"):
-            continue
+            continue  # Skip title
+
         if line.startswith("## "):
-            if not seen_first_section:
-                seen_first_section = True
-                result.append(line)
-                continue
+            # Save previous section if it was a target
+            if in_target_section and current_section_lines:
+                result.extend(current_section_lines)
+                result.append("")  # Blank line between sections
+
+            # Check if this is a target section
+            if line in target_headers:
+                in_target_section = True
+                current_section_lines = [line]
             else:
-                break  # Stop at second ## heading
-        result.append(line)
+                in_target_section = False
+                current_section_lines = []
+        elif in_target_section:
+            current_section_lines.append(line)
+
+    # Save last section if it was a target
+    if in_target_section and current_section_lines:
+        result.extend(current_section_lines)
 
     return result
 

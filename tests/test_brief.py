@@ -131,3 +131,96 @@ def test_generate_brief_with_recent_decisions(tmp_path):
     content = output.read_text()
     assert "Recent decision" in content
     assert "Old decision" not in content
+
+
+def test_constraints_exact_headers_only(tmp_path):
+    """Test brief extracts only Infrastructure, Rules, Hazards sections from CONSTRAINTS.md."""
+    constraints_md = tmp_path / "CONSTRAINTS.md"
+    constraints_md.write_text("""# Constraints
+
+## Infrastructure
+- ChromaDB batch limit: 5000
+- Gateway port: 7778
+
+## Rules
+- Schema stays v2
+- No migrations
+
+## Key Facts
+- Gateway: localhost:7778
+- Token env var: CHINVEX_API_TOKEN
+
+## Hazards
+- Batch size exceeded = silent failure
+- Don't delete meta.json
+
+## Security
+- API keys in env only
+""")
+
+    output = tmp_path / "SESSION_BRIEF.md"
+    from chinvex.brief import generate_brief
+
+    generate_brief(
+        context_name="TestContext",
+        state_md=None,
+        constraints_md=constraints_md,
+        decisions_md=None,
+        latest_digest=None,
+        watch_history_log=None,
+        output=output
+    )
+
+    content = output.read_text()
+
+    # Should include exact headers
+    assert "## Infrastructure" in content
+    assert "## Rules" in content
+    assert "## Hazards" in content
+
+    # Should include content under exact headers
+    assert "ChromaDB batch limit: 5000" in content
+    assert "Schema stays v2" in content
+    assert "Batch size exceeded = silent failure" in content
+
+    # Should NOT include Key Facts or Security (not in exact header list)
+    assert "## Key Facts" not in content
+    assert "Token env var: CHINVEX_API_TOKEN" not in content
+    assert "## Security" not in content
+    assert "API keys in env only" not in content
+
+
+def test_constraints_missing_some_exact_headers(tmp_path):
+    """Test brief gracefully handles CONSTRAINTS.md missing some exact headers."""
+    constraints_md = tmp_path / "CONSTRAINTS.md"
+    constraints_md.write_text("""# Constraints
+
+## Infrastructure
+- Gateway port: 7778
+
+## Key Facts
+- This should not appear
+""")
+
+    output = tmp_path / "SESSION_BRIEF.md"
+    from chinvex.brief import generate_brief
+
+    generate_brief(
+        context_name="TestContext",
+        state_md=None,
+        constraints_md=constraints_md,
+        decisions_md=None,
+        latest_digest=None,
+        watch_history_log=None,
+        output=output
+    )
+
+    content = output.read_text()
+
+    # Should include Infrastructure
+    assert "## Infrastructure" in content
+    assert "Gateway port: 7778" in content
+
+    # Should NOT include Key Facts
+    assert "## Key Facts" not in content
+    assert "This should not appear" not in content
