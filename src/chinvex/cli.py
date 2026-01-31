@@ -65,6 +65,7 @@ def ingest_cmd(
     repo: list[str] = typer.Option([], "--repo", help="Add repo path to context (can be repeated)"),
     chat_root: list[str] = typer.Option([], "--chat-root", help="Add chat root to context (can be repeated)"),
     no_write_context: bool = typer.Option(False, "--no-write-context", help="Ingest ad-hoc without mutating context.json"),
+    no_claude_hook: bool = typer.Option(False, "--no-claude-hook", help="Skip Claude Code startup hook installation"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
@@ -188,6 +189,19 @@ def ingest_cmd(
             typer.echo(f"  Skipped: {result.stats['skipped']}")
             if 'embeddings_reused' in result.stats:
                 typer.echo(f"  Embeddings: {result.stats['embeddings_reused']} reused, {result.stats['embeddings_new']} new")
+
+        # Install startup hooks in repos after successful ingestion
+        if not no_claude_hook:
+            from .hook_installer import install_startup_hook
+
+            repos = [Path(r) for r in ctx.includes.repos]
+            for repo_path in repos:
+                if repo_path.exists():
+                    success = install_startup_hook(repo_path, context)
+                    if success:
+                        typer.echo(f"Installed startup hook in {repo_path}")
+                    else:
+                        typer.secho(f"Warning: Could not install hook in {repo_path}", fg=typer.colors.YELLOW, err=True)
     else:
         # Old config-based ingestion (deprecated)
         typer.secho("Warning: --config is deprecated. Use --context instead.", fg=typer.colors.YELLOW)
