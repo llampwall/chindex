@@ -1214,5 +1214,99 @@ def uninstall(
     bootstrap_uninstall(profile_path)
 
 
+@app.command("update-memory")
+def update_memory_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    commit: bool = typer.Option(False, "--commit", help="Auto-commit changes (default: review mode)")
+):
+    """Update memory files (STATE.md, CONSTRAINTS.md, DECISIONS.md) from git history.
+
+    Review mode (default): Shows diff without committing.
+    Commit mode (--commit): Auto-commits with 'docs: update memory files'.
+    """
+    import json
+    import subprocess
+    from chinvex.memory_orchestrator import update_memory_files, get_memory_diff
+
+    # Load context config to get repo paths
+    contexts_root = get_contexts_root()
+    ctx_dir = contexts_root / context
+    config_path = ctx_dir / "context.json"
+
+    if not config_path.exists():
+        typer.echo(f"Error: Context '{context}' not found", err=True)
+        raise typer.Exit(1)
+
+    config = json.loads(config_path.read_text())
+
+    repos = config.get("includes", {}).get("repos", [])
+    if not repos:
+        typer.echo(f"Error: No repos configured for context '{context}'", err=True)
+        raise typer.Exit(1)
+
+    # Use first repo (multi-repo support is future work)
+    repo_root = Path(repos[0])
+    if not repo_root.exists():
+        typer.echo(f"Error: Repo not found: {repo_root}", err=True)
+        raise typer.Exit(1)
+
+    memory_dir = repo_root / "docs" / "memory"
+    state_file = memory_dir / "STATE.md"
+    constraints_file = memory_dir / "CONSTRAINTS.md"
+    decisions_file = memory_dir / "DECISIONS.md"
+
+    # Read old content for diff
+    old_state = state_file.read_text() if state_file.exists() else ""
+    old_constraints = constraints_file.read_text() if constraints_file.exists() else ""
+    old_decisions = decisions_file.read_text() if decisions_file.exists() else ""
+
+    # Run update
+    result = update_memory_files(repo_root)
+
+    if result.commits_processed == 0:
+        typer.echo("No new commits since last update. Memory files are up to date.")
+        return
+
+    # Read new content
+    new_state = state_file.read_text() if state_file.exists() else ""
+    new_constraints = constraints_file.read_text() if constraints_file.exists() else ""
+    new_decisions = decisions_file.read_text() if decisions_file.exists() else ""
+
+    # Show summary
+    typer.echo(f"Processed {result.commits_processed} commits")
+    typer.echo(f"Analyzed {result.files_analyzed} spec/plan files")
+    typer.echo(f"Updated {result.files_changed} memory files")
+
+    if result.bounded_inputs_triggered:
+        typer.echo("WARNING: Bounded inputs limit reached - some commits/files skipped", err=True)
+
+    # Show diffs in review mode
+    if not commit:
+        typer.echo("\n=== CHANGES (review mode - not committed) ===\n")
+
+        if new_state != old_state:
+            typer.echo(get_memory_diff("STATE.md", old_state, new_state))
+
+        if new_constraints != old_constraints:
+            typer.echo(get_memory_diff("CONSTRAINTS.md", old_constraints, new_constraints))
+
+        if new_decisions != old_decisions:
+            typer.echo(get_memory_diff("DECISIONS.md", old_decisions, new_decisions))
+
+        typer.echo("\nRun with --commit to auto-commit these changes.")
+    else:
+        # Commit mode
+        if result.files_changed > 0:
+            subprocess.run(["git", "add", "docs/memory/"], cwd=repo_root, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "docs: update memory files"],
+                cwd=repo_root,
+                check=True
+            )
+            typer.echo("Changes committed.")
+        else:
+            typer.echo("No changes to commit.")
+
+
 if __name__ == "__main__":
     app()
