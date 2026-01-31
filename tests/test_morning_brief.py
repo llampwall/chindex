@@ -246,3 +246,142 @@ Third line too
 
     assert objective == "First line is the objective"
     assert len(actions) == 1
+
+
+def test_generate_morning_brief_with_objectives(tmp_path):
+    """Test morning brief includes objectives and next actions from STATE.md."""
+    from chinvex.morning_brief import generate_morning_brief
+
+    contexts_root = tmp_path / "contexts"
+    contexts_root.mkdir()
+
+    # Active context with STATE.md
+    ctx1 = contexts_root / "ProjectAlpha"
+    ctx1.mkdir()
+    (ctx1 / "STATUS.json").write_text(json.dumps({
+        "context": "ProjectAlpha",
+        "chunks": 150,
+        "last_sync": (datetime.now() - timedelta(days=2)).isoformat()
+    }))
+
+    # Create docs/memory/STATE.md (simulate repo structure)
+    docs_memory = ctx1 / "docs" / "memory"
+    docs_memory.mkdir(parents=True)
+    (docs_memory / "STATE.md").write_text("""# State
+
+## Current Objective
+Implement P5 reliability features
+
+## Next Actions
+- [ ] Add embedding integrity checks
+- [ ] Update brief generation
+- [ ] Test cross-context search
+""")
+
+    # Active context without STATE.md
+    ctx2 = contexts_root / "ProjectBeta"
+    ctx2.mkdir()
+    (ctx2 / "STATUS.json").write_text(json.dumps({
+        "context": "ProjectBeta",
+        "chunks": 75,
+        "last_sync": (datetime.now() - timedelta(days=1)).isoformat()
+    }))
+
+    # Stale context
+    ctx3 = contexts_root / "ProjectGamma"
+    ctx3.mkdir()
+    (ctx3 / "STATUS.json").write_text(json.dumps({
+        "context": "ProjectGamma",
+        "chunks": 50,
+        "last_sync": (datetime.now() - timedelta(days=10)).isoformat()
+    }))
+
+    output = tmp_path / "MORNING_BRIEF.md"
+
+    brief_text, ntfy_body = generate_morning_brief(contexts_root, output)
+
+    # Check output file
+    assert output.exists()
+    content = output.read_text()
+
+    # System Health section (compact)
+    assert "## System Health" in content
+    assert "Contexts: 3" in content
+    assert "1 stale" in content
+
+    # Active Projects section with objectives
+    assert "## Active Projects" in content
+    assert "### ProjectAlpha" in content
+    assert "**Objective:** Implement P5 reliability features" in content
+    assert "**Next Actions:**" in content
+    assert "Add embedding integrity checks" in content
+    assert "Update brief generation" in content
+
+    # ProjectBeta should appear but without objective (no STATE.md)
+    assert "### ProjectBeta" in content
+    assert "(no STATE.md)" in content
+
+    # Stale Contexts section
+    assert "## Stale Contexts" in content
+    assert "ProjectGamma" in content
+    assert "hours since sync" in content or "days since sync" in content
+
+    # ntfy body should include top objective
+    assert "ProjectAlpha" in ntfy_body
+    assert "Implement P5 reliability features" in ntfy_body
+
+
+def test_generate_morning_brief_no_stale_contexts(tmp_path):
+    """Test morning brief when all contexts are active."""
+    from chinvex.morning_brief import generate_morning_brief
+
+    contexts_root = tmp_path / "contexts"
+    contexts_root.mkdir()
+
+    # Only active contexts
+    for i in range(2):
+        ctx = contexts_root / f"Context{i}"
+        ctx.mkdir()
+        (ctx / "STATUS.json").write_text(json.dumps({
+            "context": f"Context{i}",
+            "chunks": 100,
+            "last_sync": (datetime.now() - timedelta(days=i+1)).isoformat()
+        }))
+
+    output = tmp_path / "MORNING_BRIEF.md"
+
+    brief_text, ntfy_body = generate_morning_brief(contexts_root, output)
+
+    content = output.read_text()
+
+    # Should not have Stale Contexts section
+    assert "## Stale Contexts" not in content or "None" in content.split("## Stale Contexts")[1].split("##")[0]
+
+
+def test_generate_morning_brief_cap_5_active(tmp_path):
+    """Test morning brief caps active contexts at 5."""
+    from chinvex.morning_brief import generate_morning_brief
+
+    contexts_root = tmp_path / "contexts"
+    contexts_root.mkdir()
+
+    # Create 8 active contexts
+    for i in range(8):
+        ctx = contexts_root / f"Context{i}"
+        ctx.mkdir()
+        (ctx / "STATUS.json").write_text(json.dumps({
+            "context": f"Context{i}",
+            "chunks": 100,
+            "last_sync": (datetime.now() - timedelta(days=i+1)).isoformat()
+        }))
+
+    output = tmp_path / "MORNING_BRIEF.md"
+
+    brief_text, ntfy_body = generate_morning_brief(contexts_root, output)
+
+    content = output.read_text()
+
+    # Should only show top 5
+    assert "### Context0" in content
+    assert "### Context4" in content
+    assert "### Context5" not in content

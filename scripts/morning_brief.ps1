@@ -3,8 +3,8 @@
     Generate and send morning brief with context status
 
 .DESCRIPTION
-    Aggregates STATUS.json from all contexts and sends ntfy push.
-    Writes MORNING_BRIEF.md to configured output path.
+    Uses chinvex.morning_brief Python module to generate brief with
+    active project objectives and send ntfy push.
 
 .PARAMETER ContextsRoot
     Path to contexts root directory
@@ -36,100 +36,48 @@ param(
     [string]$OutputPath = ""
 )
 
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Stop"
 
 # Default output path
 if (-not $OutputPath) {
     $OutputPath = Join-Path (Split-Path $ContextsRoot -Parent) "MORNING_BRIEF.md"
 }
 
-# Collect all STATUS.json files
-$contexts = Get-ChildItem -Path $ContextsRoot -Directory
-$statusData = @()
+# Call Python module to generate brief
+$pythonCode = @"
+import sys
+from pathlib import Path
+from chinvex.morning_brief import generate_morning_brief
 
-foreach ($ctx in $contexts) {
-    $statusFile = Join-Path $ctx.FullName "STATUS.json"
-    if (Test-Path $statusFile) {
-        try {
-            $status = Get-Content $statusFile | ConvertFrom-Json
-            $statusData += $status
-        } catch {
-            Write-Warning "Failed to parse ${statusFile}: $_"
-        }
-    }
-}
+contexts_root = Path(r'$ContextsRoot')
+output_path = Path(r'$OutputPath')
 
-# Calculate totals
-$totalChunks = ($statusData | Measure-Object -Property chunks -Sum).Sum
-$staleContexts = $statusData | Where-Object { $_.freshness.is_stale -eq $true }
-$pendingWatches = ($statusData | Measure-Object -Property watches_pending_hits -Sum).Sum
+brief_text, ntfy_body = generate_morning_brief(contexts_root, output_path)
 
-# Generate markdown
-$timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
-$markdown = @"
-# Dual Nature Morning Brief
-Generated: $timestamp
-
-## Summary
-- **Total Contexts:** $($statusData.Count)
-- **Total Chunks:** $($totalChunks.ToString("N0"))
-- **Stale Contexts:** $($staleContexts.Count)
-- **Pending Watch Hits:** $pendingWatches
-
-## Context Details
-| Context | Chunks | Last Sync | Status |
-|---------|--------|-----------|--------|
+# Print ntfy body to stdout for PowerShell to capture
+print(ntfy_body, end='')
 "@
 
-foreach ($status in ($statusData | Sort-Object -Property context)) {
-    $statusIcon = if ($status.freshness.is_stale) { "[STALE]" } else { "[OK]" }
-    $lastSync = if ($status.last_sync) {
-        $syncTime = [datetime]::Parse($status.last_sync)
-        $hoursAgo = [math]::Round(((Get-Date) - $syncTime).TotalHours, 1)
-        "${hoursAgo}h ago"
-    } else {
-        "unknown"
-    }
+try {
+    # Run Python code and capture ntfy body
+    $ntfyBody = python -c $pythonCode
 
-    $markdown += "`n| $($status.context) | $($status.chunks.ToString("N0")) | $lastSync | $statusIcon |"
-}
+    Write-Host "Generated morning brief at $OutputPath"
 
-if ($staleContexts.Count -gt 0) {
-    $markdown += "`n`n## Stale Contexts"
-    foreach ($ctx in $staleContexts) {
-        $markdown += "`n- **$($ctx.context)**: $($ctx.freshness.hours_since_sync) hours since sync"
-    }
-}
+    # Send ntfy push if topic is configured
+    if ($NtfyTopic) {
+        $title = "Morning Brief"
 
-if ($pendingWatches -gt 0) {
-    $markdown += "`n`n## Pending Watch Hits"
-    $markdown += "`nTotal pending: $pendingWatches"
-}
-
-# Write markdown file
-$markdown | Out-File -FilePath $OutputPath -Encoding UTF8
-Write-Host "Wrote brief to $OutputPath"
-
-# Send ntfy push
-if ($NtfyTopic) {
-    $title = "Dual Nature Morning Brief"
-    $body = "Contexts: $($statusData.Count) ($($staleContexts.Count) stale)`nChunks: $($totalChunks.ToString("N0"))`nWatch hits: $pendingWatches"
-
-    if ($staleContexts.Count -gt 0) {
-        $staleNames = ($staleContexts | ForEach-Object { $_.context }) -join ", "
-        $body += "`nStale: $staleNames"
-    }
-
-    try {
         $url = "$NtfyServer/$NtfyTopic"
         $headers = @{
             "Title" = $title
             "Tags" = "sunrise,calendar"
         }
 
-        Invoke-RestMethod -Uri $url -Method Post -Body $body -Headers $headers | Out-Null
-        Write-Host "Sent morning brief push"
-    } catch {
-        Write-Warning "Failed to send ntfy push: $_"
+        Invoke-RestMethod -Uri $url -Method Post -Body $ntfyBody -Headers $headers | Out-Null
+        Write-Host "Sent morning brief push to $NtfyTopic"
     }
+} catch {
+    Write-Error "Failed to generate morning brief: $_"
+    exit 1
 }

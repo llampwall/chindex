@@ -142,3 +142,113 @@ def parse_state_md(
                     break
 
     return objective, actions
+
+
+def generate_morning_brief(
+    contexts_root: Path,
+    output_path: Path
+) -> tuple[str, str]:
+    """
+    Generate morning brief with active project objectives.
+
+    Args:
+        contexts_root: Path to contexts directory
+        output_path: Path to write MORNING_BRIEF.md
+
+    Returns:
+        (brief_markdown, ntfy_body) where ntfy_body is suitable for push notification
+    """
+    active_contexts, stale_contexts = detect_active_stale_contexts(contexts_root)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    lines = [
+        "# Morning Brief",
+        f"Generated: {timestamp}",
+        "",
+        "## System Health",
+        f"- Contexts: {len(active_contexts) + len(stale_contexts)} ({len(stale_contexts)} stale)",
+        "",
+    ]
+
+    # Active Projects section
+    if active_contexts:
+        lines.append("## Active Projects")
+
+        for ctx_status in active_contexts:
+            ctx_name = ctx_status["context"]
+            lines.append(f"### {ctx_name}")
+
+            # Try to find STATE.md in context directory
+            ctx_dir = contexts_root / ctx_name
+            state_md_path = ctx_dir / "docs" / "memory" / "STATE.md"
+
+            objective, actions = parse_state_md(state_md_path)
+
+            if objective:
+                lines.append(f"**Objective:** {objective}")
+            else:
+                lines.append("**Objective:** (no STATE.md)")
+
+            if actions:
+                lines.append("**Next Actions:**")
+                for action in actions:
+                    lines.append(f"- [ ] {action}")
+
+            lines.append("")
+
+    # Stale Contexts section
+    if stale_contexts:
+        lines.append("## Stale Contexts")
+
+        for ctx_status in stale_contexts:
+            ctx_name = ctx_status["context"]
+            last_sync_str = ctx_status.get("last_sync", "unknown")
+
+            if last_sync_str != "unknown":
+                try:
+                    last_sync = datetime.fromisoformat(last_sync_str.replace("Z", "+00:00"))
+                    if last_sync.tzinfo:
+                        last_sync = last_sync.replace(tzinfo=None)
+
+                    hours_ago = (datetime.now() - last_sync).total_seconds() / 3600
+
+                    if hours_ago < 48:
+                        time_desc = f"{int(hours_ago)} hours since sync"
+                    else:
+                        days_ago = int(hours_ago / 24)
+                        time_desc = f"{days_ago} days since sync"
+                except (ValueError, AttributeError):
+                    time_desc = "unknown"
+            else:
+                time_desc = "never synced"
+
+            lines.append(f"- **{ctx_name}**: {time_desc}")
+
+        lines.append("")
+
+    brief_text = "\n".join(lines)
+
+    # Generate ntfy body (first 1-2 objectives)
+    ntfy_lines = []
+    ntfy_lines.append(f"Contexts: {len(active_contexts)} active, {len(stale_contexts)} stale")
+
+    if active_contexts:
+        ntfy_lines.append("")
+        for i, ctx_status in enumerate(active_contexts[:2]):
+            ctx_name = ctx_status["context"]
+            ctx_dir = contexts_root / ctx_name
+            state_md_path = ctx_dir / "docs" / "memory" / "STATE.md"
+
+            objective, _ = parse_state_md(state_md_path)
+
+            if objective:
+                ntfy_lines.append(f"{ctx_name}: {objective}")
+
+    ntfy_body = "\n".join(ntfy_lines)
+
+    # Write output file
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(brief_text)
+
+    return brief_text, ntfy_body
