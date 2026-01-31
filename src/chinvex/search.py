@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -239,6 +241,52 @@ def make_snippet(text: str, limit: int = 200) -> str:
     return snippet[:limit]
 
 
+def _get_reranker(config):
+    """Factory function to instantiate reranker based on config.
+
+    Args:
+        config: RerankerConfig object
+
+    Returns:
+        Reranker instance (Cohere, Jina, or Local)
+
+    Raises:
+        ValueError: If provider is unknown
+        ValueError: If required API key is missing
+    """
+    if config.provider == "cohere":
+        from .rerankers.cohere import CohereReranker, CohereRerankerConfig
+        api_key = os.getenv("COHERE_API_KEY")
+        reranker_config = CohereRerankerConfig(
+            provider=config.provider,
+            model=config.model,
+            candidates=config.candidates,
+            top_k=config.top_k,
+        )
+        return CohereReranker(reranker_config, api_key=api_key)
+    elif config.provider == "jina":
+        from .rerankers.jina import JinaReranker, JinaRerankerConfig
+        api_key = os.getenv("JINA_API_KEY")
+        reranker_config = JinaRerankerConfig(
+            provider=config.provider,
+            model=config.model,
+            candidates=config.candidates,
+            top_k=config.top_k,
+        )
+        return JinaReranker(reranker_config, api_key=api_key)
+    elif config.provider == "local":
+        from .rerankers.local import LocalReranker, LocalRerankerConfig
+        reranker_config = LocalRerankerConfig(
+            provider=config.provider,
+            model=config.model,
+            candidates=config.candidates,
+            top_k=config.top_k,
+        )
+        return LocalReranker(reranker_config)
+    else:
+        raise ValueError(f"Unknown reranker provider: {config.provider}")
+
+
 def search_context(
     ctx,
     query: str,
@@ -250,9 +298,13 @@ def search_context(
     repo: str | None = None,
     ollama_host_override: str | None = None,
     recency_enabled: bool = True,
+    rerank: bool = False,
 ) -> list[SearchResult]:
     """
     Search within a context using context-aware weights.
+
+    Args:
+        rerank: If True, enable reranking for this query (overrides context config)
     """
     from .context import ContextConfig
 
@@ -287,19 +339,75 @@ def search_context(
     embedder = OllamaEmbedder(ollama_host, embedding_model, fallback_host=fallback_host)
     vectors = VectorStore(chroma_dir)
 
+    # Determine if reranking should be used
+    use_reranker = (ctx.reranker is not None) or rerank
+
+    # If reranking enabled, fetch more candidates
+    if use_reranker and ctx.reranker:
+        candidates_k = ctx.reranker.candidates
+    else:
+        candidates_k = k
+
     # Use context weights for source-type prioritization
     scored = search_chunks(
         storage,
         vectors,
         embedder,
         query,
-        k=k,
+        k=candidates_k,
         min_score=min_score,
         source=source,
         project=project,
         repo=repo,
         weights=ctx.weights,
     )
+
+    # Apply reranking if enabled and conditions met
+    if use_reranker and ctx.reranker and len(scored) >= 10:
+        try:
+            # Prepare candidates for reranking
+            candidates = [
+                {"chunk_id": item.chunk_id, "text": item.row["text"]}
+                for item in scored
+            ]
+
+            # Truncate to max 50 candidates
+            if len(candidates) > 50:
+                candidates = candidates[:50]
+                scored = scored[:50]
+
+            # Get reranker and rerank with 2s timeout
+            start_time = time.time()
+            reranker = _get_reranker(ctx.reranker)
+            reranked = reranker.rerank(query, candidates, top_k=k)
+            elapsed = time.time() - start_time
+
+            if elapsed > 2.0:
+                print(
+                    f"Warning: Reranking took {elapsed:.2f}s (exceeded 2s budget)",
+                    file=sys.stderr
+                )
+
+            # Map reranked results back to ScoredChunk objects
+            reranked_map = {r["chunk_id"]: r["rerank_score"] for r in reranked}
+            scored = [
+                item for item in scored
+                if item.chunk_id in reranked_map
+            ]
+            # Update scores with rerank scores
+            for item in scored:
+                item.score = reranked_map[item.chunk_id]
+
+            # Sort by rerank score
+            scored.sort(key=lambda r: r.score, reverse=True)
+
+        except Exception as e:
+            # Fallback: use pre-rerank results
+            print(
+                f"Warning: Reranker failed ({type(e).__name__}: {e}). "
+                f"Falling back to pre-rerank results.",
+                file=sys.stderr
+            )
 
     results = [
         SearchResult(

@@ -64,6 +64,15 @@ class EmbeddingConfig:
 
 
 @dataclass(frozen=True)
+class RerankerConfig:
+    """Reranker configuration (P5.4)."""
+    provider: str  # "cohere", "jina", or "local"
+    model: str
+    candidates: int  # Number of candidates to fetch from initial retrieval
+    top_k: int  # Number of results to return after reranking
+
+
+@dataclass(frozen=True)
 class NotificationsConfig:
     """Webhook notification configuration (P3)."""
     enabled: bool
@@ -95,6 +104,8 @@ class ContextConfig:
     notifications: NotificationsConfig | None = None
     # P4 additions
     embedding: EmbeddingConfig | None = None
+    # P5.4 additions
+    reranker: RerankerConfig | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> ContextConfig:
@@ -186,6 +197,17 @@ class ContextConfig:
                 model=emb_data.get("model"),
             )
 
+        # P5.4: reranker config (optional)
+        reranker = None
+        if "reranker" in data and data["reranker"] is not None:
+            rerank_data = data["reranker"]
+            reranker = RerankerConfig(
+                provider=rerank_data.get("provider", "cohere"),
+                model=rerank_data.get("model", "rerank-english-v3.0"),
+                candidates=rerank_data.get("candidates", 20),
+                top_k=rerank_data.get("top_k", 5),
+            )
+
         # Handle missing timestamp fields for old contexts
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
@@ -206,6 +228,7 @@ class ContextConfig:
             archive=archive,
             notifications=notifications,
             embedding=embedding,
+            reranker=reranker,
         )
 
     def to_dict(self) -> dict:
