@@ -20,6 +20,10 @@ from .config import load_gateway_config
 from .metrics import MetricsCollector
 from .endpoints import health, healthz, search, evidence, chunks, contexts, metrics
 
+from chinvex.index_meta import read_index_meta
+from chinvex.context_cli import get_contexts_root
+from chinvex.context import list_contexts, load_context
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -125,14 +129,110 @@ async def check_rate_limit(token: str = Depends(verify_token)):
     return token
 
 
+def load_embedding_config_from_contexts() -> dict:
+    """
+    Load embedding configuration from contexts.
+
+    Reads meta.json from each context to determine embedding provider.
+    Uses first context's config as the gateway's default.
+    Detects mixed providers across contexts.
+
+    Returns:
+        dict with keys: embedding_provider, embedding_model, contexts_loaded, mixed_providers
+    """
+    try:
+        contexts_root = get_contexts_root()
+        contexts = list_contexts(contexts_root)
+
+        if not contexts:
+            # No contexts loaded - use safe default (OpenAI per P5 spec)
+            return {
+                "embedding_provider": "openai",
+                "embedding_model": "text-embedding-3-small",
+                "contexts_loaded": 0,
+                "mixed_providers": False
+            }
+
+        # Read meta.json from each context
+        providers_seen = set()
+        first_provider = None
+        first_model = None
+
+        for ctx_info in contexts:
+            context = load_context(ctx_info.name, contexts_root)
+
+            # Derive meta.json path from sqlite_path
+            index_dir = Path(context.index.sqlite_path).parent
+            meta_path = index_dir / "meta.json"
+
+            meta = read_index_meta(meta_path)
+
+            if meta:
+                providers_seen.add(f"{meta.embedding_provider}:{meta.embedding_model}")
+                if first_provider is None:
+                    first_provider = meta.embedding_provider
+                    first_model = meta.embedding_model
+            else:
+                # No meta.json - assume OpenAI default (P5 spec)
+                if first_provider is None:
+                    first_provider = "openai"
+                    first_model = "text-embedding-3-small"
+                providers_seen.add("openai:text-embedding-3-small")
+
+        # Use first context's config or default
+        if first_provider is None:
+            first_provider = "openai"
+            first_model = "text-embedding-3-small"
+
+        return {
+            "embedding_provider": first_provider,
+            "embedding_model": first_model,
+            "contexts_loaded": len(contexts),
+            "mixed_providers": len(providers_seen) > 1
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to load embedding config: {e}", exc_info=True)
+        # Fail safe to OpenAI default
+        return {
+            "embedding_provider": "openai",
+            "embedding_model": "text-embedding-3-small",
+            "contexts_loaded": 0,
+            "mixed_providers": False
+        }
+
+
 # Startup event for warmup
 @app.on_event("startup")
 async def startup_warmup():
     """Warm up the gateway by preloading contexts and initializing storage."""
     logger.info("Starting gateway warmup...")
+
+    # Load embedding config from contexts
+    embedding_config = load_embedding_config_from_contexts()
+
+    # Set gateway state for /health endpoint
+    from chinvex.gateway.endpoints.health import set_gateway_state
+    set_gateway_state(
+        embedding_provider=embedding_config["embedding_provider"],
+        embedding_model=embedding_config["embedding_model"],
+        contexts_loaded=embedding_config["contexts_loaded"]
+    )
+
+    # Log warning if mixed providers detected
+    if embedding_config["mixed_providers"]:
+        logger.warning(
+            "Mixed embedding providers detected across contexts. "
+            "Cross-context search will be restricted."
+        )
+
+    logger.info(
+        f"Gateway configured with {embedding_config['embedding_provider']} "
+        f"({embedding_config['embedding_model']}), "
+        f"{embedding_config['contexts_loaded']} contexts loaded"
+    )
+
     try:
-        from chinvex.context_cli import get_contexts_root, list_contexts
-        from chinvex.context import load_context
         from chinvex.storage import Storage
         from chinvex.vectors import VectorStore
 
