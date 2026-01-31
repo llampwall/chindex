@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -254,7 +255,24 @@ def search_context(
     Search within a context using context-aware weights.
     """
     from .context import ContextConfig
-    
+
+    # NEW: Warn if context uses Ollama embeddings
+    if ctx.embedding and ctx.embedding.provider == "ollama":
+        print(
+            f"Warning: Context '{ctx.name}' uses Ollama embeddings. "
+            f"Consider migrating to OpenAI for faster and more consistent results. "
+            f"Run: chinvex ingest --context {ctx.name} --embed-provider openai --rebuild-index",
+            file=sys.stderr
+        )
+    elif not ctx.embedding:
+        # Legacy context without embedding field defaults to Ollama
+        print(
+            f"Warning: Context '{ctx.name}' uses Ollama embeddings (legacy default). "
+            f"Consider migrating to OpenAI for faster and more consistent results. "
+            f"Run: chinvex ingest --context {ctx.name} --embed-provider openai --rebuild-index",
+            file=sys.stderr
+        )
+
     db_path = ctx.index.sqlite_path
     chroma_dir = ctx.index.chroma_dir
 
