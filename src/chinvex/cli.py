@@ -230,6 +230,7 @@ def search_cmd(
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
     no_recency: bool = typer.Option(False, "--no-recency", help="Disable recency decay"),
     allow_mixed_embeddings: bool = typer.Option(False, "--allow-mixed-embeddings", help="Allow mixed embedding providers (P6+)"),
+    rerank: bool = typer.Option(False, "--rerank", help="Enable reranking for this query"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
@@ -280,6 +281,7 @@ def search_cmd(
             ollama_host=ollama_host,
             recency_enabled=not no_recency,
             allow_mixed_embeddings=allow_mixed_embeddings,
+            rerank=rerank,
         )
 
         if not results:
@@ -324,6 +326,7 @@ def search_cmd(
             repo=repo,
             ollama_host_override=ollama_host,
             recency_enabled=not no_recency,
+            rerank=rerank,
         )
 
         if not results:

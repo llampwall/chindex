@@ -545,6 +545,7 @@ def search_multi_context(
     ollama_host: str | None = None,
     recency_enabled: bool = True,
     allow_mixed_embeddings: bool = False,
+    rerank: bool = False,
 ) -> list[SearchResult]:
     """
     Search across multiple contexts, merge results by score.
@@ -557,6 +558,7 @@ def search_multi_context(
         source: Filter by source type (all/repo/chat/codex_session)
         ollama_host: Ollama host override
         recency_enabled: Enable recency decay
+        rerank: Enable reranking for this query
         allow_mixed_embeddings: Allow mixed embedding providers (not yet supported in P5)
 
     Returns:
@@ -611,6 +613,7 @@ def search_multi_context(
                 source=source,
                 ollama_host_override=ollama_host,
                 recency_enabled=recency_enabled,
+                rerank=rerank,
             )
             # Tag each result with source context
             for r in results:
