@@ -224,3 +224,140 @@ def test_constraints_missing_some_exact_headers(tmp_path):
     # Should NOT include Key Facts
     assert "## Key Facts" not in content
     assert "This should not appear" not in content
+
+
+def test_decisions_recent_rollup_section(tmp_path):
+    """Test brief includes Recent rollup from DECISIONS.md."""
+    recent_date = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+
+    decisions_md = tmp_path / "DECISIONS.md"
+    decisions_md.write_text(f"""# Decisions
+
+## Recent (last 30 days)
+- Switched to OpenAI embeddings for speed
+- Fixed ChromaDB batch limit issue
+- Implemented cross-context search
+
+## 2026-01
+
+### {recent_date} — Recent decision
+
+- **Why:** Testing
+- **Impact:** Should appear in dated section
+- **Evidence:** commit abc123
+""")
+
+    output = tmp_path / "SESSION_BRIEF.md"
+    from chinvex.brief import generate_brief
+
+    generate_brief(
+        context_name="TestContext",
+        state_md=None,
+        constraints_md=None,
+        decisions_md=decisions_md,
+        latest_digest=None,
+        watch_history_log=None,
+        output=output
+    )
+
+    content = output.read_text()
+
+    # Should include Recent rollup section
+    assert "## Recent (last 30 days)" in content
+    assert "Switched to OpenAI embeddings for speed" in content
+    assert "Fixed ChromaDB batch limit issue" in content
+
+    # Should also include dated entries from last 7 days
+    assert "Recent decision" in content
+    assert "Should appear in dated section" in content
+
+
+def test_decisions_rollup_plus_last_7_days(tmp_path):
+    """Test brief includes both rollup and dated entries from last 7 days."""
+    recent_date = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
+    old_date = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%d")
+
+    decisions_md = tmp_path / "DECISIONS.md"
+    decisions_md.write_text(f"""# Decisions
+
+## Recent (last 30 days)
+- Summary line 1
+- Summary line 2
+
+## 2026-01
+
+### {recent_date} — Recent dated entry
+
+- **Why:** Testing recent
+- **Impact:** Should appear
+- **Evidence:** commit abc123
+
+### {old_date} — Old dated entry
+
+- **Why:** Testing old
+- **Impact:** Should NOT appear (>7 days)
+- **Evidence:** commit def456
+""")
+
+    output = tmp_path / "SESSION_BRIEF.md"
+    from chinvex.brief import generate_brief
+
+    generate_brief(
+        context_name="TestContext",
+        state_md=None,
+        constraints_md=None,
+        decisions_md=decisions_md,
+        latest_digest=None,
+        watch_history_log=None,
+        output=output
+    )
+
+    content = output.read_text()
+
+    # Rollup section
+    assert "## Recent (last 30 days)" in content
+    assert "Summary line 1" in content
+
+    # Recent dated entry (within 7 days)
+    assert "Recent dated entry" in content
+    assert "Should appear" in content
+
+    # Old dated entry should NOT appear
+    assert "Old dated entry" not in content
+    assert "Should NOT appear" not in content
+
+
+def test_decisions_no_rollup_section(tmp_path):
+    """Test brief handles DECISIONS.md without Recent rollup section."""
+    recent_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    decisions_md = tmp_path / "DECISIONS.md"
+    decisions_md.write_text(f"""# Decisions
+
+## 2026-01
+
+### {recent_date} — Decision without rollup
+
+- **Why:** No rollup section exists
+- **Impact:** Should still appear
+- **Evidence:** commit abc123
+""")
+
+    output = tmp_path / "SESSION_BRIEF.md"
+    from chinvex.brief import generate_brief
+
+    generate_brief(
+        context_name="TestContext",
+        state_md=None,
+        constraints_md=None,
+        decisions_md=decisions_md,
+        latest_digest=None,
+        watch_history_log=None,
+        output=output
+    )
+
+    content = output.read_text()
+
+    # Should include dated entry even without rollup
+    assert "Decision without rollup" in content
+    assert "Should still appear" in content

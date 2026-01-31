@@ -137,12 +137,35 @@ def _extract_constraints_top(constraints_md: Path) -> list[str]:
 
 
 def _extract_recent_decisions(decisions_md: Path, days: int) -> list[str]:
-    """Extract decisions from last N days."""
+    """Extract Recent rollup section + dated entries from last N days."""
     content = decisions_md.read_text()
     lines = content.split("\n")
 
     cutoff_date = datetime.now() - timedelta(days=days)
     result = []
+
+    # Extract Recent rollup section first
+    in_recent_rollup = False
+    rollup_lines = []
+
+    for i, line in enumerate(lines):
+        if line.strip() == "## Recent (last 30 days)":
+            in_recent_rollup = True
+            rollup_lines.append(line)
+            continue
+
+        if in_recent_rollup:
+            # Stop at next ## heading or ### entry
+            if line.startswith("## ") or line.startswith("### "):
+                break
+            rollup_lines.append(line)
+
+    # Add rollup section if found
+    if rollup_lines:
+        result.extend(rollup_lines)
+        result.append("")
+
+    # Extract dated entries from last N days
     current_decision = []
     current_date = None
 
