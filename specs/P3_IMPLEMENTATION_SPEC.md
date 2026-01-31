@@ -472,7 +472,7 @@ Fire HTTP POST when watch triggers.
 
 **Security note:** Webhook payload includes snippet (first 200 chars) and source_uri, but NEVER full chunk text. This prevents accidental data leakage via webhook logs.
 
-**Path sanitization:** `source_uri` is sanitized to **filename only** (not full path) to prevent leaking directory structure. Example: `C:\Users\Jordan\Private\diary.md` → `diary.md`
+**Path sanitization:** `source_uri` is sanitized to **filename only** (not full path) to prevent leaking directory structure. Example: `C:\Users\Name\Private\diary.md` → `diary.md`
 
 **Webhook URL validation:**
 - HTTPS required (HTTP rejected)

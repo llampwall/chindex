@@ -2049,7 +2049,7 @@ Create `~/.cloudflared/config.yml`:
 
 \`\`\`yaml
 tunnel: chinvex
-credentials-file: C:\Users\Jordan\.cloudflared\<tunnel-id>.json
+credentials-file: ~\.cloudflared\<tunnel-id>.json
 
 ingress:
   - hostname: chinvex.yourdomain.com
@@ -2064,7 +2064,7 @@ cloudflared tunnel route dns chinvex chinvex.yourdomain.com
 
 ### 4. Test
 \`\`\`bash
-cloudflared tunnel run chinvex
+cloudflared tunnel --protocol http2 run chinvex
 \`\`\`
 
 Visit `https://chinvex.yourdomain.com/health`
@@ -2072,7 +2072,7 @@ Visit `https://chinvex.yourdomain.com/health`
 ### 5. Run as service (PM2)
 
 \`\`\`bash
-pm2 start "cloudflared tunnel run chinvex" --name chinvex-tunnel
+pm2 start "cloudflared tunnel --protocol http2 run chinvex" --name chinvex-tunnel
 pm2 start "chinvex gateway serve --port 7778" --name chinvex-gateway
 pm2 save
 pm2 startup

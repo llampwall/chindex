@@ -16,7 +16,7 @@ uv pip install -e .
 ## Configuration
 
 Set environment variables:
-- `CHINVEX_URL` - Gateway URL (default: `https://chinvex.unkndlabs.com`)
+- `CHINVEX_URL` - Gateway URL (default: `https://chinvex.yourdomain.com`)
 - `CHINVEX_API_TOKEN` - Bearer token for authentication (required)
 
 ## Claude Desktop Setup
@@ -29,7 +29,7 @@ Add to `~/.config/claude/claude_desktop_config.json` (Linux) or `%APPDATA%\Claud
     "chinvex": {
       "command": "chinvex-mcp",
       "env": {
-        "CHINVEX_URL": "https://chinvex.unkndlabs.com",
+        "CHINVEX_URL": "https://chinvex.yourdomain.com",
         "CHINVEX_API_TOKEN": "your-token-here"
       }
     }
@@ -46,7 +46,7 @@ Or if using Python directly:
       "command": "python",
       "args": ["-m", "chinvex_mcp.server"],
       "env": {
-        "CHINVEX_URL": "https://chinvex.unkndlabs.com",
+        "CHINVEX_URL": "https://chinvex.yourdomain.com",
         "CHINVEX_API_TOKEN": "your-token-here"
       }
     }

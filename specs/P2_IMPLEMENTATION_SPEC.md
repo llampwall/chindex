@@ -657,14 +657,16 @@ Fastest path to HTTPS. No port forwarding, no dynamic DNS.
 
 5. Run tunnel:
    ```bash
-   cloudflared tunnel run chinvex
+   cloudflared tunnel --protocol http2 run chinvex
    ```
 
 #### PM2 Integration
 
 ```bash
-pm2 start "cloudflared tunnel run chinvex" --name chinvex-tunnel
-pm2 start "chinvex gateway serve --port 7778" --name chinvex-gateway
+pm2 start -x cloudflared --name chinvex-tunnel -- tunnel --protocol http2 run chinvex-gateway
+
+pm2 start -x python --name chinvex-gateway -- -m chinvex.cli gateway serve --port 7778
+
 pm2 save
 ```
 
@@ -761,7 +763,7 @@ echo "Gateway healthy"
 
 1. Ensure Ollama is running (for embeddings)
 2. Start gateway: `chinvex gateway serve`
-3. Start tunnel/proxy: `cloudflared tunnel run chinvex` or Caddy
+3. Start tunnel/proxy: `cloudflared tunnel --protocol http2 run chinvex` or Caddy
 4. Verify: `curl https://chinvex.yourdomain.com/health`
 
 ---
@@ -1162,7 +1164,7 @@ curl -H "Authorization: Bearer $CHINVEX_API_TOKEN" https://chinvex.yourdomain.co
 cloudflared tunnel info chinvex
 
 # Check tunnel logs
-cloudflared tunnel run chinvex 2>&1 | head -50
+cloudflared tunnel --protocol http2 run chinvex 2>&1 | head -50
 
 # Verify DNS
 nslookup chinvex.yourdomain.com

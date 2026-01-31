@@ -2,7 +2,7 @@
 
 Exposes Chinvex memory search to Claude Desktop/Code via MCP protocol.
 Configured via environment variables:
-  - CHINVEX_URL: Gateway URL (default: https://chinvex.unkndlabs.com)
+  - CHINVEX_URL: Gateway URL (default: https://chinvex.yourdomain.com)
   - CHINVEX_API_TOKEN: Bearer token for authentication
 """
 
@@ -17,7 +17,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field, ConfigDict
 
 # Configuration from environment
-CHINVEX_URL = os.environ.get("CHINVEX_URL", "https://chinvex.unkndlabs.com")
+CHINVEX_URL = os.environ.get("CHINVEX_URL", "https://chinvex.yourdomain.com")
 CHINVEX_API_TOKEN = os.environ.get("CHINVEX_API_TOKEN", "")
 
 if not CHINVEX_API_TOKEN:

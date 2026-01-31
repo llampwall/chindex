@@ -26,7 +26,7 @@ def test_send_webhook_sanitizes_source_uri():
     """Test that source_uri is sanitized to filename only."""
     from chinvex.notifications import sanitize_source_uri
 
-    assert sanitize_source_uri(r"C:\Users\Jordan\Private\diary.md") == "diary.md"
+    assert sanitize_source_uri(r"C:\Users\Name\Private\diary.md") == "diary.md"
     assert sanitize_source_uri("/home/user/secret/file.txt") == "file.txt"
     assert sanitize_source_uri("file.txt") == "file.txt"
 
@@ -100,7 +100,7 @@ def test_create_watch_hit_payload():
             "chunk_id": "chunk_1",
             "score": 0.85,
             "text": "This is a long chunk of text that should be truncated after 200 characters. " * 10,
-            "source_uri": r"C:\Users\Jordan\Private\diary.md"
+            "source_uri": r"C:\Users\Name\Private\diary.md"
         },
         {
             "chunk_id": "chunk_2",

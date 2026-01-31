@@ -159,7 +159,7 @@ The Chinvex MCP server is an **HTTP client** that connects to the gateway API, e
 ### Configuration
 
 Set environment variables:
-- `CHINVEX_URL`: Gateway URL (default: `https://chinvex.unkndlabs.com`)
+- `CHINVEX_URL`: Gateway URL (default: `https://chinvex.yourdomain.com`)
 - `CHINVEX_API_TOKEN`: Bearer token for authentication (required)
 
 **Using the runbook script** (recommended):
@@ -172,7 +172,7 @@ Loads token from `P:\secrets\chinvex_mcp_token.txt` and starts the server.
 **Manual startup**:
 ```powershell
 $env:CHINVEX_API_TOKEN = "your-token-here"
-$env:CHINVEX_URL = "https://chinvex.unkndlabs.com"
+$env:CHINVEX_URL = "https://chinvex.yourdomain.com"
 python -m chinvex_mcp.server
 ```
 
@@ -186,7 +186,7 @@ Add to `claude_desktop_config.json` or MCP settings:
       "command": "python",
       "args": ["-m", "chinvex_mcp.server"],
       "env": {
-        "CHINVEX_URL": "https://chinvex.unkndlabs.com",
+        "CHINVEX_URL": "https://chinvex.yourdomain.com",
         "CHINVEX_API_TOKEN": "your-token-here"
       }
     }
@@ -371,7 +371,7 @@ Requires 2 terminals:
 
 **Terminal 1 - Cloudflare Tunnel:**
 ```powershell
-cloudflared tunnel run chinvex-gateway
+cloudflared tunnel --protocol http2 run chinvex-gateway
 ```
 
 **Terminal 2 - Gateway Server:**
