@@ -161,34 +161,47 @@ def get_provider(
 ) -> EmbeddingProvider:
     """
     Select embedding provider based on precedence:
-    1. CLI flag
-    2. context.json
-    3. Environment variable
-    4. Default (ollama)
+    1. CLI flag (--embed-provider)
+    2. context.json embedding config
+    3. Environment variable (CHINVEX_EMBED_PROVIDER)
+    4. Default: OpenAI text-embedding-3-small (P5 spec)
+
+    Args:
+        cli_provider: Provider from CLI flag
+        context_config: Context config dict (may contain embedding.provider)
+        env_provider: Provider from environment variable
+        ollama_host: Ollama service URL (default: http://localhost:11434)
+
+    Returns:
+        Configured embedding provider instance
+
+    Raises:
+        ValueError: If provider is unknown or configuration is invalid
+        RuntimeError: If OpenAI selected but API key is missing
     """
     provider_name = None
     model = None
 
-    # 1. CLI
+    # 1. CLI flag (highest priority)
     if cli_provider:
         provider_name = cli_provider
     # 2. context.json
     elif context_config and "embedding" in context_config:
         provider_name = context_config["embedding"].get("provider")
         model = context_config["embedding"].get("model")
-    # 3. Environment
+    # 3. Environment variable
     elif env_provider:
         provider_name = env_provider
-    # 4. Default
+    # 4. Default: OpenAI (P5 spec - was Ollama in P4)
     else:
-        provider_name = "ollama"
+        provider_name = "openai"
 
     # Instantiate provider
-    if provider_name == "ollama":
-        model = model or "mxbai-embed-large"
-        return OllamaProvider(ollama_host, model)
-    elif provider_name == "openai":
+    if provider_name == "openai":
         model = model or "text-embedding-3-small"
         return OpenAIProvider(api_key=None, model=model)
+    elif provider_name == "ollama":
+        model = model or "mxbai-embed-large"
+        return OllamaProvider(ollama_host, model)
     else:
         raise ValueError(f"Unknown embedding provider: {provider_name}")
