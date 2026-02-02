@@ -55,12 +55,21 @@ def merge_settings_json(base: dict, overlay: dict) -> dict:
 
 
 def install_startup_hook(repo_root: Path, context_name: str) -> bool:
-    """Install Claude Code startup hook in .claude/settings.json.
+    """Install Claude Code SessionStart hook in .claude/settings.json.
 
     Creates or updates settings.json to include:
     {
         "hooks": {
-            "startup": ["chinvex brief --context <context_name>"]
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "chinvex brief --context <context_name>"
+                        }
+                    ]
+                }
+            ]
         }
     }
 
@@ -96,15 +105,31 @@ def install_startup_hook(repo_root: Path, context_name: str) -> bool:
     if "hooks" not in existing:
         existing["hooks"] = {}
 
-    if "startup" not in existing["hooks"]:
-        existing["hooks"]["startup"] = []
-    elif isinstance(existing["hooks"]["startup"], str):
-        # Convert string to array
-        existing["hooks"]["startup"] = [existing["hooks"]["startup"]]
+    if "SessionStart" not in existing["hooks"]:
+        existing["hooks"]["SessionStart"] = []
+
+    # Create the hook definition in the correct format
+    hook_definition = {
+        "hooks": [
+            {
+                "type": "command",
+                "command": hook_command
+            }
+        ]
+    }
+
+    # Check if this specific hook command is already present
+    hook_exists = False
+    for hook_group in existing["hooks"]["SessionStart"]:
+        if isinstance(hook_group, dict) and "hooks" in hook_group:
+            for hook in hook_group["hooks"]:
+                if isinstance(hook, dict) and hook.get("command") == hook_command:
+                    hook_exists = True
+                    break
 
     # Add hook if not already present
-    if hook_command not in existing["hooks"]["startup"]:
-        existing["hooks"]["startup"].append(hook_command)
+    if not hook_exists:
+        existing["hooks"]["SessionStart"].append(hook_definition)
 
     # Write back
     settings_file.write_text(json.dumps(existing, indent=2) + "\n")

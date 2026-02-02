@@ -48,7 +48,17 @@ def test_ingest_installs_startup_hook_by_default(tmp_path):
     assert settings_file.exists()
 
     settings = json.loads(settings_file.read_text())
-    assert "chinvex brief --context test_context" in settings["hooks"]["startup"]
+    assert "SessionStart" in settings["hooks"]
+
+    # Check that the hook command exists in the correct format
+    hook_found = False
+    for hook_group in settings["hooks"]["SessionStart"]:
+        if "hooks" in hook_group:
+            for hook in hook_group["hooks"]:
+                if hook.get("type") == "command" and hook.get("command") == "chinvex brief --context test_context":
+                    hook_found = True
+                    break
+    assert hook_found
 
 
 def test_ingest_skips_hook_with_no_claude_hook_flag(tmp_path):
@@ -82,7 +92,17 @@ def test_ingest_installs_hook_in_all_context_repos(tmp_path):
         settings_file = repo / ".claude" / "settings.json"
         assert settings_file.exists()
         settings = json.loads(settings_file.read_text())
-        assert "chinvex brief --context multi_repo_context" in settings["hooks"]["startup"]
+        assert "SessionStart" in settings["hooks"]
+
+        # Check that the hook command exists in the correct format
+        hook_found = False
+        for hook_group in settings["hooks"]["SessionStart"]:
+            if "hooks" in hook_group:
+                for hook in hook_group["hooks"]:
+                    if hook.get("type") == "command" and hook.get("command") == "chinvex brief --context multi_repo_context":
+                        hook_found = True
+                        break
+        assert hook_found
 
 
 def test_ingest_warns_on_non_git_repo(tmp_path, caplog):

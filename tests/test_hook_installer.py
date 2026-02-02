@@ -39,8 +39,17 @@ def test_install_startup_hook_creates_settings_json(tmp_path):
 
     settings = json.loads(settings_file.read_text())
     assert "hooks" in settings
-    assert "startup" in settings["hooks"]
-    assert "chinvex brief --context test_context" in settings["hooks"]["startup"]
+    assert "SessionStart" in settings["hooks"]
+
+    # Check that the hook command exists in the correct format
+    hook_found = False
+    for hook_group in settings["hooks"]["SessionStart"]:
+        if "hooks" in hook_group:
+            for hook in hook_group["hooks"]:
+                if hook.get("type") == "command" and hook.get("command") == "chinvex brief --context test_context":
+                    hook_found = True
+                    break
+    assert hook_found
 
 
 def test_install_startup_hook_merges_with_existing_settings(tmp_path):
@@ -68,11 +77,11 @@ def test_install_startup_hook_merges_with_existing_settings(tmp_path):
 
     # Should add hook
     assert "hooks" in settings
-    assert "startup" in settings["hooks"]
+    assert "SessionStart" in settings["hooks"]
 
 
-def test_install_startup_hook_converts_string_to_array(tmp_path):
-    """Should convert existing string startup hook to array."""
+def test_install_startup_hook_appends_to_existing_session_start(tmp_path):
+    """Should append to existing SessionStart hooks without clobbering."""
     repo = tmp_path / "test_repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
@@ -82,7 +91,16 @@ def test_install_startup_hook_converts_string_to_array(tmp_path):
     settings_file = claude_dir / "settings.json"
     settings_file.write_text(json.dumps({
         "hooks": {
-            "startup": "existing-command"
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "existing-command"
+                        }
+                    ]
+                }
+            ]
         }
     }))
 
@@ -90,14 +108,23 @@ def test_install_startup_hook_converts_string_to_array(tmp_path):
 
     settings = json.loads(settings_file.read_text())
 
-    # Should be converted to array
-    assert isinstance(settings["hooks"]["startup"], list)
-    assert "existing-command" in settings["hooks"]["startup"]
-    assert "chinvex brief --context test_context" in settings["hooks"]["startup"]
+    # Should have both hooks
+    assert len(settings["hooks"]["SessionStart"]) == 2
+
+    # Verify both commands are present
+    commands = []
+    for hook_group in settings["hooks"]["SessionStart"]:
+        if "hooks" in hook_group:
+            for hook in hook_group["hooks"]:
+                if hook.get("type") == "command":
+                    commands.append(hook.get("command"))
+
+    assert "existing-command" in commands
+    assert "chinvex brief --context test_context" in commands
 
 
-def test_install_startup_hook_appends_to_existing_array(tmp_path):
-    """Should append to existing startup array without duplicating."""
+def test_install_startup_hook_preserves_other_hooks(tmp_path):
+    """Should preserve other hook types when adding SessionStart."""
     repo = tmp_path / "test_repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
@@ -107,7 +134,16 @@ def test_install_startup_hook_appends_to_existing_array(tmp_path):
     settings_file = claude_dir / "settings.json"
     settings_file.write_text(json.dumps({
         "hooks": {
-            "startup": ["other-command"]
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "other-hook-command"
+                        }
+                    ]
+                }
+            ]
         }
     }))
 
@@ -115,9 +151,11 @@ def test_install_startup_hook_appends_to_existing_array(tmp_path):
 
     settings = json.loads(settings_file.read_text())
 
-    assert "other-command" in settings["hooks"]["startup"]
-    assert "chinvex brief --context test_context" in settings["hooks"]["startup"]
-    assert len(settings["hooks"]["startup"]) == 2
+    # Should preserve existing hook type
+    assert "UserPromptSubmit" in settings["hooks"]
+
+    # Should add SessionStart
+    assert "SessionStart" in settings["hooks"]
 
 
 def test_install_startup_hook_avoids_duplicates(tmp_path):
@@ -131,7 +169,16 @@ def test_install_startup_hook_avoids_duplicates(tmp_path):
     settings_file = claude_dir / "settings.json"
     settings_file.write_text(json.dumps({
         "hooks": {
-            "startup": ["chinvex brief --context test_context"]
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "chinvex brief --context test_context"
+                        }
+                    ]
+                }
+            ]
         }
     }))
 
@@ -139,8 +186,18 @@ def test_install_startup_hook_avoids_duplicates(tmp_path):
 
     settings = json.loads(settings_file.read_text())
 
-    # Should not duplicate
-    assert settings["hooks"]["startup"].count("chinvex brief --context test_context") == 1
+    # Should not duplicate - should still have only 1 SessionStart hook group
+    assert len(settings["hooks"]["SessionStart"]) == 1
+
+    # Verify the command is still there
+    hook_found = False
+    for hook_group in settings["hooks"]["SessionStart"]:
+        if "hooks" in hook_group:
+            for hook in hook_group["hooks"]:
+                if hook.get("type") == "command" and hook.get("command") == "chinvex brief --context test_context":
+                    hook_found = True
+                    break
+    assert hook_found
 
 
 def test_install_startup_hook_skips_non_git_with_warning(tmp_path, caplog):
@@ -176,13 +233,13 @@ def test_merge_settings_json_deep_merges():
     base = {
         "theme": "dark",
         "hooks": {
-            "pre-commit": ["lint"]
+            "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "lint"}]}]
         }
     }
 
     overlay = {
         "hooks": {
-            "startup": ["brief"]
+            "SessionStart": [{"hooks": [{"type": "command", "command": "brief"}]}]
         },
         "new_field": "value"
     }
@@ -190,7 +247,7 @@ def test_merge_settings_json_deep_merges():
     merged = merge_settings_json(base, overlay)
 
     # Should preserve both hook types
-    assert merged["hooks"]["pre-commit"] == ["lint"]
-    assert merged["hooks"]["startup"] == ["brief"]
+    assert merged["hooks"]["UserPromptSubmit"] == [{"hooks": [{"type": "command", "command": "lint"}]}]
+    assert merged["hooks"]["SessionStart"] == [{"hooks": [{"type": "command", "command": "brief"}]}]
     assert merged["theme"] == "dark"
     assert merged["new_field"] == "value"

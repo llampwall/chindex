@@ -88,6 +88,9 @@ chinvex ingest --context MyProject --repo C:\Code\myproject --chat-root P:\ai_me
 - `--embed-provider {ollama|openai}`: Choose embedding provider (default: ollama)
 - `--rebuild-index`: Force full rebuild instead of incremental update
 - `--no-write-context`: Prevent auto-creation of missing contexts (fail instead)
+- `--no-claude-hook`: Skip automatic Claude Code hook installation
+
+**Claude Code integration**: By default, ingestion installs a `SessionStart` hook in each repository's `.claude/settings.json`. This automatically runs `chinvex brief --context <name>` when you open the repository in Claude Code, providing context about recent changes. Use `--no-claude-hook` to disable this behavior.
 
 **Provider switching**: If you switch embedding providers, you MUST use `--rebuild-index`:
 ```powershell
