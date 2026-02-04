@@ -266,6 +266,39 @@ chinvex ingest --context MyProject --repo C:\Code\myproject --register-only
 ```
 Creates context if missing, adds paths, but skips embedding/indexing. Useful for external tooling or deferred ingestion.
 
+### Strap Integration
+
+**If you use [strap](https://github.com/llampwall/_strap) for dev environment management, you get automatic chinvex integration.**
+
+Strap's registry becomes the source of truth - when you manage repos with strap, chinvex contexts are created and synchronized automatically:
+
+- `strap clone <url>` → Registers repo in chinvex
+- `strap adopt <path>` → Adds to chinvex context
+- `strap move <name>` → Updates chinvex path
+- `strap rename <name>` → Updates chinvex context name
+- `strap uninstall <name>` → Archives chinvex context
+
+**Scope-based mapping:**
+- **software** scope → Individual chinvex context per repo (e.g., `chinvex` context for the chinvex repo)
+- **tool** scope → Shared `tools` context (all tool repos indexed together)
+- **archive** scope → Shared `archive` context (archived repos)
+
+**Strap verification commands:**
+```powershell
+# View chinvex contexts and sync status
+strap contexts
+
+# Preview registry/chinvex drift
+strap sync-chinvex
+
+# Fix any drift between registry and chinvex
+strap sync-chinvex --reconcile
+```
+
+This integration uses the `--register-only` flag internally to manage context registration without triggering ingestion. Actual embedding/indexing happens separately (via scheduled sync daemon, manual ingest, or bootstrap automation).
+
+For full details, see the [Chinvex Integration section](../../../_strap/README.md#chinvex-integration) in strap's README.
+
 **Claude Code integration**: By default, ingestion installs a `SessionStart` hook in `.claude/settings.json` that runs `chinvex brief --context <name>` when you open the repo in Claude Code.
 
 **Provider switching**: If you switch embedding providers, you MUST use `--rebuild-index`:
