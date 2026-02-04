@@ -1,0 +1,32 @@
+2026-02-04 02:08:09: INFO:     Started server process [21832]
+2026-02-04 02:08:09: INFO:     Waiting for application startup.
+2026-02-04 02:08:09: INFO:chinvex.gateway.app:Starting gateway warmup...
+2026-02-04 02:08:09: INFO:chinvex.gateway.app:Validated embedding provider: openai (text-embedding-3-small)
+2026-02-04 02:08:09: WARNING:chinvex.gateway.app:Mixed embedding providers detected across contexts. Cross-context search will be restricted.
+2026-02-04 02:08:09: INFO:chinvex.gateway.app:Gateway configured with openai (text-embedding-3-small), 10 contexts loaded
+2026-02-04 02:08:09: INFO:chinvex.gateway.app:Loaded 10 contexts
+2026-02-04 02:08:10: INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-04 02:08:10: INFO:chinvex.gateway.app:Warmed up context: _archive
+2026-02-04 02:08:10: INFO:chinvex.gateway.app:Gateway warmup complete
+2026-02-04 02:08:10: INFO:     Application startup complete.
+2026-02-04 02:08:10: INFO:     Uvicorn running on http://127.0.0.1:7778 (Press CTRL+C to quit)
+2026-02-04 02:38:12: INFO:     Started server process [22208]
+2026-02-04 02:38:12: INFO:     Waiting for application startup.
+2026-02-04 02:38:12: INFO:chinvex.gateway.app:Starting gateway warmup...
+2026-02-04 02:38:12: INFO:chinvex.gateway.app:Validated embedding provider: openai (text-embedding-3-small)
+2026-02-04 02:38:12: WARNING:chinvex.gateway.app:Mixed embedding providers detected across contexts. Cross-context search will be restricted.
+2026-02-04 02:38:12: INFO:chinvex.gateway.app:Gateway configured with openai (text-embedding-3-small), 10 contexts loaded
+2026-02-04 02:38:12: INFO:chinvex.gateway.app:Loaded 10 contexts
+2026-02-04 02:38:12: INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-04 02:38:12: INFO:chinvex.gateway.app:Warmed up context: _archive
+2026-02-04 02:38:12: INFO:chinvex.gateway.app:Gateway warmup complete
+2026-02-04 02:38:12: INFO:     Application startup complete.
+2026-02-04 02:38:12: INFO:     Uvicorn running on http://127.0.0.1:7778 (Press CTRL+C to quit)
+2026-02-04 04:01:25: INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-04 04:02:26: INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-04 04:02:30: INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-04 04:02:34: INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-04 04:02:44: INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-04 04:02:49: INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-04 04:03:06: INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-04 04:03:12: INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
