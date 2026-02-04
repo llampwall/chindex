@@ -444,7 +444,7 @@ def ingest_cmd(
         if not no_claude_hook:
             from .hook_installer import install_startup_hook
 
-            repos = [Path(r) for r in ctx.includes.repos]
+            repos = [r.path for r in ctx.includes.repos]
             for repo_path in repos:
                 if repo_path.exists():
                     success = install_startup_hook(repo_path, context)
