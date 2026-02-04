@@ -289,7 +289,9 @@ def test_ingest_register_only_creates_context(tmp_path: Path, monkeypatch) -> No
     result = runner.invoke(app, [
         "ingest", "--context", "NewContext",
         "--repo", str(repo_path),
-        "--register-only"
+        "--register-only",
+        "--chinvex-depth", "full",
+        "--status", "active"
     ])
     assert result.exit_code == 0
     assert "Registered" in result.stdout
@@ -298,9 +300,11 @@ def test_ingest_register_only_creates_context(tmp_path: Path, monkeypatch) -> No
     ctx_file = contexts_root / "NewContext" / "context.json"
     assert ctx_file.exists()
 
-    # Repo should be in config
+    # Repo should be in config with metadata
     data = json.loads(ctx_file.read_text())
     assert len(data["includes"]["repos"]) == 1
+    assert data["includes"]["repos"][0]["chinvex_depth"] == "full"
+    assert data["includes"]["repos"][0]["status"] == "active"
 
 
 def test_ingest_register_only_adds_to_existing(tmp_path: Path, monkeypatch) -> None:
@@ -319,14 +323,18 @@ def test_ingest_register_only_adds_to_existing(tmp_path: Path, monkeypatch) -> N
     runner.invoke(app, [
         "ingest", "--context", "TestContext",
         "--repo", str(repo1),
-        "--register-only"
+        "--register-only",
+        "--chinvex-depth", "full",
+        "--status", "active"
     ])
 
     # Add second repo
     result = runner.invoke(app, [
         "ingest", "--context", "TestContext",
         "--repo", str(repo2),
-        "--register-only"
+        "--register-only",
+        "--chinvex-depth", "light",
+        "--status", "stable"
     ])
     assert result.exit_code == 0
 
@@ -433,7 +441,9 @@ def test_context_archive_success(tmp_path: Path, monkeypatch) -> None:
     runner.invoke(app, [
         "ingest", "--context", "ToArchive",
         "--repo", str(repo_path),
-        "--register-only"
+        "--register-only",
+        "--chinvex-depth", "full",
+        "--status", "active"
     ])
 
     # Archive it

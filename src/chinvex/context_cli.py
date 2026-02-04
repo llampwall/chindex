@@ -30,12 +30,21 @@ def get_indexes_root() -> Path:
 def create_context_if_missing(
     name: str,
     contexts_root: Path | None = None,
-    repos: list[str] | None = None,
+    repos: list[dict] | None = None,
     chat_roots: list[str] | None = None
 ) -> None:
     """
     Create context if it doesn't exist, with optional initial sources.
     Deduplicates paths before writing.
+
+    repos format: [
+        {
+            "path": "P:/software/chinvex",
+            "chinvex_depth": "full",
+            "status": "active",
+            "tags": ["python", "search"]
+        }
+    ]
     """
     if contexts_root is None:
         contexts_root = get_contexts_root()
@@ -49,14 +58,26 @@ def create_context_if_missing(
         if repos or chat_roots:
             ctx_config = json.loads(context_file.read_text(encoding="utf-8"))
 
-            # Normalize and deduplicate repos
+            # Normalize and deduplicate repos with metadata
             if repos:
                 existing_repos = ctx_config["includes"].get("repos", [])
-                seen = {normalize_path_for_dedup(r) for r in existing_repos}
+                # Build set of existing paths for deduplication
+                seen = set()
+                for r in existing_repos:
+                    if isinstance(r, str):
+                        seen.add(normalize_path_for_dedup(r))
+                    else:
+                        seen.add(normalize_path_for_dedup(r["path"]))
+
                 for repo in repos:
-                    normalized = normalize_path_for_dedup(repo)
+                    normalized = normalize_path_for_dedup(repo["path"])
                     if normalized not in seen:
-                        existing_repos.append(str(Path(repo).resolve()))
+                        existing_repos.append({
+                            "path": str(Path(repo["path"]).resolve()),
+                            "chinvex_depth": repo["chinvex_depth"],
+                            "status": repo["status"],
+                            "tags": repo.get("tags", [])
+                        })
                         seen.add(normalized)
                 ctx_config["includes"]["repos"] = existing_repos
 
@@ -79,14 +100,19 @@ def create_context_if_missing(
         return  # Already exists
 
     # Create new context
-    # Normalize and deduplicate paths
+    # Normalize and deduplicate paths with metadata
     normalized_repos = []
     if repos:
         seen = set()
         for repo in repos:
-            normalized = normalize_path_for_dedup(repo)
+            normalized = normalize_path_for_dedup(repo["path"])
             if normalized not in seen:
-                normalized_repos.append(str(Path(repo).resolve()))
+                normalized_repos.append({
+                    "path": str(Path(repo["path"]).resolve()),
+                    "chinvex_depth": repo["chinvex_depth"],
+                    "status": repo["status"],
+                    "tags": repo.get("tags", [])
+                })
                 seen.add(normalized)
 
     normalized_chat_roots = []

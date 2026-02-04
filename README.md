@@ -262,9 +262,25 @@ chinvex ingest --context MyProject --repo C:\Code\myproject --chat-root P:\ai_me
 
 **Register-only mode** (add paths without ingesting):
 ```powershell
-chinvex ingest --context MyProject --repo C:\Code\myproject --register-only
+chinvex ingest --context MyProject --repo C:\Code\myproject \
+  --register-only \
+  --chinvex-depth full \
+  --status active \
+  --tags python,web
 ```
-Creates context if missing, adds paths, but skips embedding/indexing. Useful for external tooling or deferred ingestion.
+Creates context if missing, adds paths with metadata, but skips embedding/indexing. Useful for external tooling or deferred ingestion.
+
+**Metadata fields:**
+- `--chinvex-depth`: Ingestion depth (default: `full`)
+  - `full`: Deep ingestion - all files, detailed parsing
+  - `light`: Lightweight - skip large files, basic parsing
+  - `index`: Minimal - file tree only, no content
+- `--status`: Lifecycle state (default: `active`)
+  - `active`: Under active development
+  - `stable`: Stable, infrequent changes
+  - `dormant`: Archived, rarely accessed
+- `--tags`: Comma-separated tags for grouping (default: none)
+  - Example: `python,ml,third-party`
 
 ### Strap Integration
 
@@ -272,16 +288,24 @@ Creates context if missing, adds paths, but skips embedding/indexing. Useful for
 
 Strap's registry becomes the source of truth - when you manage repos with strap, chinvex contexts are created and synchronized automatically:
 
-- `strap clone <url>` → Registers repo in chinvex
-- `strap adopt <path>` → Adds to chinvex context
+- `strap clone <url>` → Registers repo in chinvex with metadata
+- `strap adopt <path>` → Adds to chinvex context with metadata
 - `strap move <name>` → Updates chinvex path
 - `strap rename <name>` → Updates chinvex context name
 - `strap uninstall <name>` → Archives chinvex context
 
-**Scope-based mapping:**
-- **software** scope → Individual chinvex context per repo (e.g., `chinvex` context for the chinvex repo)
-- **tool** scope → Shared `tools` context (all tool repos indexed together)
-- **archive** scope → Shared `archive` context (archived repos)
+**Metadata-based classification:**
+
+All repos live in `P:\software` with rich metadata for flexible classification:
+
+- **chinvex_depth**: Controls how deeply each repo is ingested
+  - Software projects typically use `full`
+  - Third-party libraries might use `light`
+  - Archived projects might use `index`
+- **status**: Tracks lifecycle state (`active`, `stable`, `dormant`)
+- **tags**: Freeform grouping (e.g., `["python", "ml", "third-party"]`)
+
+Strap passes these fields when registering repos with chinvex using `--register-only` mode.
 
 **Strap verification commands:**
 ```powershell

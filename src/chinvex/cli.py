@@ -249,6 +249,9 @@ def ingest_cmd(
     no_write_context: bool = typer.Option(False, "--no-write-context", help="Ingest ad-hoc without mutating context.json"),
     no_claude_hook: bool = typer.Option(False, "--no-claude-hook", help="Skip Claude Code startup hook installation"),
     register_only: bool = typer.Option(False, "--register-only", help="Register paths in context.json without ingesting"),
+    chinvex_depth: str = typer.Option("full", "--chinvex-depth", help="Ingestion depth: full, light, or index"),
+    status: str = typer.Option("active", "--status", help="Lifecycle status: active, stable, or dormant"),
+    tags: str = typer.Option("", "--tags", help="Comma-separated tags (e.g., 'python,ml,web')"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
@@ -256,6 +259,18 @@ def ingest_cmd(
     if not context and not config:
         typer.secho("Error: Must provide either --context or --config", fg=typer.colors.RED)
         raise typer.Exit(code=2)
+
+    # Validate new metadata fields
+    if chinvex_depth not in ["full", "light", "index"]:
+        typer.secho(f"Error: Invalid --chinvex-depth: {chinvex_depth}. Must be: full, light, or index", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+
+    if status not in ["active", "stable", "dormant"]:
+        typer.secho(f"Error: Invalid --status: {status}. Must be: active, stable, or dormant", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+
+    # Parse tags
+    tags_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
     # Handle --register-only: add paths to context.json without ingesting
     if register_only:
@@ -280,15 +295,27 @@ def ingest_cmd(
                 typer.secho(f"Error: Chat root does not exist: {chat_path}", fg=typer.colors.RED)
                 raise typer.Exit(code=2)
 
+        # Create repo metadata objects
+        repo_metadata = []
+        if repo:
+            for repo_path in repo:
+                repo_metadata.append({
+                    "path": repo_path,
+                    "chinvex_depth": chinvex_depth,
+                    "status": status,
+                    "tags": tags_list
+                })
+
         # Create context if missing, or update with new paths
         create_context_if_missing(
             context,
             contexts_root,
-            repos=repo if repo else None,
+            repos=repo_metadata if repo_metadata else None,
             chat_roots=chat_root if chat_root else None
         )
 
         typer.secho(f"Registered paths in context '{context}' (no ingestion)", fg=typer.colors.GREEN)
+        typer.echo(f"  depth={chinvex_depth}, status={status}, tags={tags_list}")
         if repo:
             for r in repo:
                 typer.echo(f"  repo: {r}")

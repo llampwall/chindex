@@ -289,6 +289,9 @@ def _ingest_chat(source: SourceConfig, storage: Storage, embedder: OllamaEmbedde
             source_uri=normalized_path(path),
             project=project,
             repo=None,
+            chinvex_depth=None,
+            status=None,
+            tags_json=None,
             title=title,
             updated_at=exported_at,
             content_hash=content_hash,
@@ -398,7 +401,7 @@ def ingest_context(
             storage.ensure_schema()
 
             # Log sources being ingested
-            sources = [str(p) for p in ctx.includes.repos]
+            sources = [str(r.path) for r in ctx.includes.repos]
             sources.extend([str(p) for p in ctx.includes.chat_roots])
             if ctx.includes.codex_session_roots:
                 sources.extend([str(p) for p in ctx.includes.codex_session_roots])
@@ -526,12 +529,12 @@ def ingest_context(
 
             try:
                 # Ingest repos
-                for repo_path in ctx.includes.repos:
-                    if not repo_path.exists():
-                        print(f"Warning: repo path {repo_path} does not exist, skipping.")
+                for repo_metadata in ctx.includes.repos:
+                    if not repo_metadata.path.exists():
+                        print(f"Warning: repo path {repo_metadata.path} does not exist, skipping.")
                         continue
                     _ingest_repo_from_context(
-                        ctx, repo_path, storage, embedder, vectors, stats, tracking, rechunk_only
+                        ctx, repo_metadata, storage, embedder, vectors, stats, tracking, rechunk_only
                     )
 
                 # Ingest chat roots
@@ -582,7 +585,7 @@ def ingest_context(
                 for repo in ctx.includes.repos:
                     sources.append({
                         "type": "repo",
-                        "path": str(repo),
+                        "path": str(repo.path),
                         "watching": True
                     })
                 for chat_root in ctx.includes.chat_roots:
@@ -677,7 +680,7 @@ def ingest_context(
 
 def _ingest_repo_from_context(
     ctx: ContextConfig,
-    repo_path: Path,
+    repo_metadata,  # RepoMetadata object
     storage: Storage,
     embedder: OllamaEmbedder,
     vectors: VectorStore,
@@ -686,6 +689,13 @@ def _ingest_repo_from_context(
     rechunk_only: bool = False,
 ) -> None:
     """Ingest a single repo with fingerprinting."""
+    import json as json_module
+
+    repo_path = repo_metadata.path
+    chinvex_depth = repo_metadata.chinvex_depth
+    status = repo_metadata.status
+    tags_json = json_module.dumps(repo_metadata.tags)
+
     for path in walk_files(repo_path, excludes=ctx.includes.repo_excludes):
         text = read_text_utf8(path)
         if text is None:
@@ -724,6 +734,9 @@ def _ingest_repo_from_context(
             source_uri=normalized_path(path),
             project=None,
             repo=str(repo_path.name),
+            chinvex_depth=chinvex_depth,
+            status=status,
+            tags_json=tags_json,
             title=path.name,
             updated_at=updated_at,
             content_hash=content_hash,
@@ -755,6 +768,9 @@ def _ingest_repo_from_context(
                 "repo",
                 None,
                 str(repo_path.name),
+                chinvex_depth,
+                status,
+                tags_json,
                 chunk.ordinal,
                 chunk.text,
                 updated_at,
@@ -877,6 +893,9 @@ def _ingest_chat_from_context(
             source_uri=normalized_path(path),
             project=project,
             repo=None,
+            chinvex_depth=None,
+            status=None,
+            tags_json=None,
             title=title,
             updated_at=exported_at,
             content_hash=content_hash,
@@ -1044,6 +1063,9 @@ def _ingest_codex_sessions_from_context(
             source_uri=thread_id,
             project=None,
             repo=None,
+            chinvex_depth=None,
+            status=None,
+            tags_json=None,
             title=conversation_doc["title"],
             updated_at=updated_at,
             content_hash=content_hash,
@@ -1196,7 +1218,7 @@ def ingest_delta(ctx, paths, *, contexts_root=None, ollama_host_override=None, e
             for repo in ctx.includes.repos:
                 sources.append({
                     "type": "repo",
-                    "path": str(repo),
+                    "path": str(repo.path),
                     "watching": True
                 })
             for chat_root in ctx.includes.chat_roots:
@@ -1262,34 +1284,42 @@ def _ingest_single_file(file_path, ctx, storage, embedder, vectors, stats):
         return
         
     # Find repo root
+    import json as json_module
+
+    repo_metadata = None
     repo_path = None
     for repo in ctx.includes.repos:
         try:
-            file_path.relative_to(repo)
-            repo_path = repo
+            file_path.relative_to(repo.path)
+            repo_metadata = repo
+            repo_path = repo.path
             break
         except ValueError:
             continue
-    
-    if not repo_path:
+
+    if not repo_path or not repo_metadata:
         return
-    
+
+    chinvex_depth = repo_metadata.chinvex_depth
+    status = repo_metadata.status
+    tags_json = json_module.dumps(repo_metadata.tags)
+
     doc_id = sha256_text(f"repo|{ctx.name}|{normalized_path(file_path)}")
     updated_at = iso_from_mtime(file_path)
     content_hash = sha256_text(text)
-    
+
     # Check if changed
     fp = storage.get_fingerprint(normalized_path(file_path), ctx.name)
     if fp and fp["content_sha256"] == content_hash:
         stats["skipped"] += 1
         return
-    
+
     # Delete old chunks
     if fp:
         chunk_ids = storage.delete_chunks_for_doc(doc_id)
         if chunk_ids:
             vectors.delete(chunk_ids)
-    
+
     # Store document
     storage.upsert_document(
         doc_id=doc_id,
@@ -1297,6 +1327,9 @@ def _ingest_single_file(file_path, ctx, storage, embedder, vectors, stats):
         source_uri=normalized_path(file_path),
         project=None,
         repo=str(repo_path.name),
+        chinvex_depth=chinvex_depth,
+        status=status,
+        tags_json=tags_json,
         title=file_path.name,
         updated_at=updated_at,
         content_hash=content_hash,
@@ -1318,6 +1351,7 @@ def _ingest_single_file(file_path, ctx, storage, embedder, vectors, stats):
         chunk_id = sha256_text(f"{doc_id}|{chunk.ordinal}|{sha256_text(chunk.text)}")
         chunk_rows.append((
             chunk_id, doc_id, "repo", None, str(repo_path.name),
+            chinvex_depth, status, tags_json,
             chunk.ordinal, chunk.text, updated_at,
             dump_json({"doc_id": doc_id, "ordinal": chunk.ordinal}),
             chunk_key(chunk.text)

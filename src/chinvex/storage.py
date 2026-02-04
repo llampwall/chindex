@@ -8,7 +8,7 @@ from typing import Iterable
 
 from .util import now_iso
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _CONN: sqlite3.Connection | None = None
 _CONN_PATH: Path | None = None
@@ -58,6 +58,8 @@ class Storage:
             self._migrate_v1_to_v2()
         if from_version < 3:
             self._migrate_v2_to_v3()
+        if from_version < 4:
+            self._migrate_v3_to_v4()
 
     def _migrate_v1_to_v2(self) -> None:
         """
@@ -101,6 +103,37 @@ class Storage:
 
         self.conn.commit()
         print("Migrated schema to v3: added archive tier support")
+
+    def _migrate_v3_to_v4(self) -> None:
+        """
+        Migrate schema from v3 to v4.
+
+        Adds chinvex_depth, status, tags_json columns to documents and chunks tables.
+        """
+        # Check if migration already applied
+        cursor = self.conn.execute("PRAGMA table_info(documents)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "chinvex_depth" in columns:
+            return  # Already migrated
+
+        # Add new columns to documents
+        self._execute("ALTER TABLE documents ADD COLUMN chinvex_depth TEXT")
+        self._execute("ALTER TABLE documents ADD COLUMN status TEXT")
+        self._execute("ALTER TABLE documents ADD COLUMN tags_json TEXT")
+
+        # Add new columns to chunks
+        self._execute("ALTER TABLE chunks ADD COLUMN chinvex_depth TEXT")
+        self._execute("ALTER TABLE chunks ADD COLUMN status TEXT")
+        self._execute("ALTER TABLE chunks ADD COLUMN tags_json TEXT")
+
+        # Create indexes for filtering
+        self._execute("CREATE INDEX IF NOT EXISTS idx_documents_depth ON documents(chinvex_depth)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_chunks_depth ON chunks(chinvex_depth)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_chunks_status ON chunks(status)")
+
+        self.conn.commit()
+        print("Migrated schema to v4: added chinvex_depth, status, tags_json columns")
 
     def ensure_schema(self) -> None:
         self._check_fts5()
@@ -150,6 +183,9 @@ class Storage:
               source_uri TEXT NOT NULL,
               project TEXT,
               repo TEXT,
+              chinvex_depth TEXT,
+              status TEXT,
+              tags_json TEXT,
               title TEXT,
               updated_at TEXT,
               content_hash TEXT,
@@ -167,6 +203,9 @@ class Storage:
               source_type TEXT NOT NULL,
               project TEXT,
               repo TEXT,
+              chinvex_depth TEXT,
+              status TEXT,
+              tags_json TEXT,
               ordinal INTEGER NOT NULL,
               text TEXT NOT NULL,
               updated_at TEXT,
@@ -236,10 +275,22 @@ class Storage:
             self._execute("ALTER TABLE documents ADD COLUMN archived INTEGER DEFAULT 0")
         if "archived_at" not in columns:
             self._execute("ALTER TABLE documents ADD COLUMN archived_at TEXT")
+        if "chinvex_depth" not in columns:
+            self._execute("ALTER TABLE documents ADD COLUMN chinvex_depth TEXT")
+        if "status" not in columns:
+            self._execute("ALTER TABLE documents ADD COLUMN status TEXT")
+        if "tags_json" not in columns:
+            self._execute("ALTER TABLE documents ADD COLUMN tags_json TEXT")
 
-        # Create index on archived column if it doesn't exist
+        # Create indexes if they don't exist
         self._execute(
             "CREATE INDEX IF NOT EXISTS idx_documents_archived ON documents(archived)"
+        )
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_depth ON documents(chinvex_depth)"
+        )
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)"
         )
 
         # Check if chunk_key exists in chunks table
@@ -248,10 +299,22 @@ class Storage:
 
         if "chunk_key" not in columns:
             self._execute("ALTER TABLE chunks ADD COLUMN chunk_key TEXT")
+        if "chinvex_depth" not in columns:
+            self._execute("ALTER TABLE chunks ADD COLUMN chinvex_depth TEXT")
+        if "status" not in columns:
+            self._execute("ALTER TABLE chunks ADD COLUMN status TEXT")
+        if "tags_json" not in columns:
+            self._execute("ALTER TABLE chunks ADD COLUMN tags_json TEXT")
 
-        # Create index on chunk_key if it doesn't exist
+        # Create indexes if they don't exist
         self._execute(
             "CREATE INDEX IF NOT EXISTS idx_chunks_chunk_key ON chunks(chunk_key)"
+        )
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_chunks_depth ON chunks(chinvex_depth)"
+        )
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_chunks_status ON chunks(status)"
         )
 
     def _check_fts5(self) -> None:
@@ -304,6 +367,9 @@ class Storage:
         source_uri: str,
         project: str | None,
         repo: str | None,
+        chinvex_depth: str | None,
+        status: str | None,
+        tags_json: str | None,
         title: str | None,
         updated_at: str,
         content_hash: str,
@@ -311,19 +377,22 @@ class Storage:
     ) -> None:
         self._execute(
             """
-            INSERT INTO documents(doc_id, source_type, source_uri, project, repo, title, updated_at, content_hash, meta_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO documents(doc_id, source_type, source_uri, project, repo, chinvex_depth, status, tags_json, title, updated_at, content_hash, meta_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(doc_id) DO UPDATE SET
               source_type=excluded.source_type,
               source_uri=excluded.source_uri,
               project=excluded.project,
               repo=excluded.repo,
+              chinvex_depth=excluded.chinvex_depth,
+              status=excluded.status,
+              tags_json=excluded.tags_json,
               title=excluded.title,
               updated_at=excluded.updated_at,
               content_hash=excluded.content_hash,
               meta_json=excluded.meta_json
             """,
-            (doc_id, source_type, source_uri, project, repo, title, updated_at, content_hash, meta_json),
+            (doc_id, source_type, source_uri, project, repo, chinvex_depth, status, tags_json, title, updated_at, content_hash, meta_json),
         )
         self.conn.commit()
 
@@ -338,13 +407,16 @@ class Storage:
     def upsert_chunks(self, rows: Iterable[tuple]) -> None:
         self._executemany(
             """
-            INSERT INTO chunks(chunk_id, doc_id, source_type, project, repo, ordinal, text, updated_at, meta_json, chunk_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chunks(chunk_id, doc_id, source_type, project, repo, chinvex_depth, status, tags_json, ordinal, text, updated_at, meta_json, chunk_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(chunk_id) DO UPDATE SET
               doc_id=excluded.doc_id,
               source_type=excluded.source_type,
               project=excluded.project,
               repo=excluded.repo,
+              chinvex_depth=excluded.chinvex_depth,
+              status=excluded.status,
+              tags_json=excluded.tags_json,
               ordinal=excluded.ordinal,
               text=excluded.text,
               updated_at=excluded.updated_at,

@@ -11,8 +11,17 @@ class ContextNotFoundError(Exception):
 
 
 @dataclass(frozen=True)
+class RepoMetadata:
+    """Metadata for a repository in a context."""
+    path: Path
+    chinvex_depth: str  # "full" | "light" | "index"
+    status: str  # "active" | "stable" | "dormant"
+    tags: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class ContextIncludes:
-    repos: list[Path]
+    repos: list[RepoMetadata]
     chat_roots: list[Path]
     codex_session_roots: list[Path]
     note_roots: list[Path]
@@ -110,8 +119,29 @@ class ContextConfig:
     @classmethod
     def from_dict(cls, data: dict) -> ContextConfig:
         includes_data = data["includes"]
+
+        # Parse repos as RepoMetadata objects
+        repos = []
+        for repo_data in includes_data.get("repos", []):
+            if isinstance(repo_data, str):
+                # Legacy format - provide defaults for backward compatibility
+                repos.append(RepoMetadata(
+                    path=Path(repo_data),
+                    chinvex_depth="full",
+                    status="active",
+                    tags=[]
+                ))
+            else:
+                # New format
+                repos.append(RepoMetadata(
+                    path=Path(repo_data["path"]),
+                    chinvex_depth=repo_data.get("chinvex_depth", "full"),
+                    status=repo_data.get("status", "active"),
+                    tags=repo_data.get("tags", [])
+                ))
+
         includes = ContextIncludes(
-            repos=[Path(p) for p in includes_data.get("repos", [])],
+            repos=repos,
             chat_roots=[Path(p) for p in includes_data.get("chat_roots", [])],
             codex_session_roots=[Path(p) for p in includes_data.get("codex_session_roots", [])],
             note_roots=[Path(p) for p in includes_data.get("note_roots", [])],
@@ -237,7 +267,15 @@ class ContextConfig:
             "name": self.name,
             "aliases": self.aliases,
             "includes": {
-                "repos": [str(p) for p in self.includes.repos],
+                "repos": [
+                    {
+                        "path": str(r.path),
+                        "chinvex_depth": r.chinvex_depth,
+                        "status": r.status,
+                        "tags": r.tags
+                    }
+                    for r in self.includes.repos
+                ],
                 "chat_roots": [str(p) for p in self.includes.chat_roots],
                 "codex_session_roots": [str(p) for p in self.includes.codex_session_roots],
                 "note_roots": [str(p) for p in self.includes.note_roots],
