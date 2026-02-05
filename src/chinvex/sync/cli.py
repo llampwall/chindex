@@ -262,10 +262,10 @@ def _start_daemon_process(state_dir: Path) -> None:
 
     # Run as detached background process
     if sys.platform == "win32":
-        # Windows: use CREATE_NEW_PROCESS_GROUP and DETACHED_PROCESS
+        # Windows: use CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS, and CREATE_NO_WINDOW
         subprocess.Popen(
             [python_exe, "-m", "chinvex.sync.process", str(state_dir), str(contexts_root)],
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
