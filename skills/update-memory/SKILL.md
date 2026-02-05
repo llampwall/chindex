@@ -1,15 +1,15 @@
 ---
 name: update-memory
-description: Update project memory files (STATE/CONSTRAINTS/DECISIONS) from git history using LLM analysis
+description: Update project memory files (STATE/CONSTRAINTS/DECISIONS) and CLAUDE.md from git history using LLM analysis
 ---
 
 # Update Memory
 
 ## Overview
 
-Analyzes git commits since last memory update and regenerates STATE.md, CONSTRAINTS.md, and DECISIONS.md.
+Analyzes git commits since last memory update and regenerates STATE.md, CONSTRAINTS.md, and DECISIONS.md. Also manages CLAUDE.md file to ensure Memory System documentation is present.
 
-**You are the LLM inference layer.** Read git history → analyze changes → update memory files respecting their update modes.
+**You are the LLM inference layer.** Read git history → analyze changes → update memory files respecting their update modes → ensure CLAUDE.md has Memory System section.
 
 ## Usage
 
@@ -144,21 +144,101 @@ Commits covered through: [HEAD hash from Step 3]
 
 Repeat for CONSTRAINTS.md and DECISIONS.md, respecting their update modes.
 
-## Step 9: Show Changes and Commit
+## Step 9: Manage CLAUDE.md File
+
+Check if CLAUDE.md exists in the repo root:
 
 ```bash
-git diff docs/memory/
+ls CLAUDE.md
+```
+
+### If CLAUDE.md does NOT exist:
+
+Copy the template and fill in placeholders from your analysis:
+
+1. Read the template:
+```bash
+cat P:\software\chinvex\skills\update-memory\CLAUDE.md
+```
+
+2. Analyze the repo to fill placeholders:
+   - `[NAME]`: Repo name (from directory name or git remote)
+   - `[BRIEF_DESCRIPTION]`: One-line description (from README.md first line or git history)
+   - `[LANGUAGE]`: Primary language (from file extensions, package.json, requirements.txt, etc.)
+   - `[RELATIVE_PATH]` / `[DESCRIPTION]`: Key directories from repo structure (src/, tests/, docs/, etc.)
+   - `[RUN_COMMAND]`: How to run the project (from package.json scripts, Makefile, setup.py, etc.)
+   - `[COMPONENT]`: Architecture components (from specs/, docs/, or commit patterns)
+   - `[REPO_SPECIFIC_RULE]`: Any patterns from git history (e.g., "Always run tests before commit")
+
+3. Write CLAUDE.md to repo root with:
+   - Filled-in placeholders where you can determine values
+   - **Delete lines** with unfilled `[PLACEHOLDERS]` or standalone `...`
+   - Keep the Memory System section and memory-related rules (already filled in template)
+
+4. If you can't determine most placeholders, create a minimal CLAUDE.md with just:
+   ```markdown
+   # CLAUDE.md
+
+   ## Project
+
+   [NAME] - [One-line description]
+
+   ## Memory System
+
+   [Full Memory System section from template]
+
+   ## Rules
+
+   [Memory-related rules from template]
+   ```
+
+### If CLAUDE.md EXISTS:
+
+1. Read the existing file:
+```bash
+cat CLAUDE.md
+```
+
+2. Check if it has the Memory System section:
+```bash
+grep -q "## Memory System" CLAUDE.md
+```
+
+3. If Memory System section is missing:
+   - Add the entire "## Memory System" section from the template
+   - Place it before the "## Rules" section (or at the end if no Rules section)
+
+4. Check if memory-related rules are present:
+```bash
+grep -q "check if brief shows.*ACTION REQUIRED" CLAUDE.md
+```
+
+5. If memory rules are missing from the Rules section:
+   - Add to the Rules section:
+     - "When opening a repo, check if brief shows 'ACTION REQUIRED' - if so, offer to run `/update-memory`"
+   - If no Rules section exists, create one with this rule
+
+6. Use the Edit tool to add missing sections (don't rewrite the whole file)
+
+**Important**: Preserve all existing content. Only add Memory System section and memory rules if missing.
+
+## Step 10: Show Changes and Commit
+
+```bash
+git diff docs/memory/ CLAUDE.md
 ```
 
 Ask user: "Memory files updated. Review the changes above. Commit? [Y/n]"
 
 If yes:
 ```bash
-git add docs/memory/
-git commit -m "docs: update memory files
+git add docs/memory/ CLAUDE.md
+git commit -m "docs: update memory files and CLAUDE.md
 
 Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 ```
+
+**Note**: If CLAUDE.md didn't change (e.g., it already had Memory System section), git will automatically exclude it from the commit.
 
 ## Key Rules
 
