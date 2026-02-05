@@ -8,19 +8,27 @@ from pathlib import Path
 def get_state_template(commit_hash: str = "unknown") -> str:
     """Return STATE.md template with coverage anchor."""
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    return f"""# State
+    return f"""<!-- DO: Rewrite freely. Keep under 30 lines. Current truth only. -->
+<!-- DON'T: Add history, rationale, or speculation. No "we used to..." -->
+
+# State
 
 ## Current Objective
 Unknown (needs human)
 
 ## Active Work
-- None
+Unknown (needs human)
 
 ## Blockers
-None
+Needs triage
 
 ## Next Actions
 - [ ] Run chinvex update-memory to populate this file
+
+## Quick Reference
+- Run: `(add command to start/run)`
+- Test: `(add command to run tests)`
+- Entry point: `(main file or module)`
 
 ## Out of Scope (for now)
 - TBD
@@ -35,19 +43,22 @@ Commits covered through: {commit_hash}
 
 def get_constraints_template() -> str:
     """Return CONSTRAINTS.md template with core sections."""
-    return """# Constraints
+    return """<!-- DO: Add bullets. Edit existing bullets in place with (updated YYYY-MM-DD). -->
+<!-- DON'T: Delete bullets. Don't write prose. Don't duplicate — search first. -->
+
+# Constraints
 
 ## Infrastructure
-- TBD
+- (Technical limits, batch sizes, ports, paths)
 
 ## Rules
-- TBD
+- (Invariants, "don't do X because Y")
 
 ## Key Facts
-- TBD
+- (Lookup values: URLs, env var names, commands)
 
 ## Hazards
-- TBD
+- (Things that bite you if you forget)
 
 ## Superseded
 (None yet)
@@ -57,13 +68,33 @@ def get_constraints_template() -> str:
 def get_decisions_template() -> str:
     """Return DECISIONS.md template with current month section."""
     current_month = datetime.datetime.now().strftime("%Y-%m")
-    return f"""# Decisions
+    return f"""<!-- DO: Append new entries to current month. Rewrite Recent rollup. -->
+<!-- DON'T: Edit or delete old entries. Don't log trivial changes. -->
+
+# Decisions
 
 ## Recent (last 30 days)
-- TBD
+- (5-10 bullet summary of recent decisions — rewritable)
 
 ## {current_month}
-(No decisions recorded yet)
+
+### YYYY-MM-DD — [Decision title]
+
+- **Why:** [Reason for the decision]
+- **Impact:** [What changed as a result]
+- **Evidence:** [commit hash or PR link]
+
+---
+
+**Bug fix format:**
+
+### YYYY-MM-DD — Fixed [bug description]
+
+- **Symptom:** [What you observed]
+- **Root cause:** [Why it happened]
+- **Fix:** [What you did]
+- **Prevention:** [How to avoid in future]
+- **Evidence:** [commit hash]
 """
 
 

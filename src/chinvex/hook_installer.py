@@ -3,7 +3,14 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
+
+# Windows-specific flag to prevent console window popups
+if sys.platform == "win32":
+    CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW
+else:
+    CREATE_NO_WINDOW = 0
 
 
 def is_git_repo(directory: Path) -> bool:
@@ -25,7 +32,8 @@ def is_git_repo(directory: Path) -> bool:
             ["git", "rev-parse", "--git-dir"],
             cwd=directory,
             check=True,
-            capture_output=True
+            capture_output=True,
+            creationflags=CREATE_NO_WINDOW
         )
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -96,7 +104,8 @@ def install_startup_hook(repo_root: Path, context_name: str) -> bool:
             cwd=repo_root,
             check=True,
             capture_output=True,
-            text=True
+            text=True,
+            creationflags=CREATE_NO_WINDOW
         )
         commit_hash = result.stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
