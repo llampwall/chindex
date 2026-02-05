@@ -394,10 +394,21 @@ def ingest_cmd(
             )
         else:
             # Normal path: create/update context.json and load it
+            # Transform repo paths to proper dict format with metadata
+            repos_with_metadata = None
+            if repo:
+                tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+                repos_with_metadata = [{
+                    "path": r,
+                    "chinvex_depth": chinvex_depth,
+                    "status": status,
+                    "tags": tag_list
+                } for r in repo]
+
             create_context_if_missing(
                 context,
                 contexts_root,
-                repos=repo if repo else None,
+                repos=repos_with_metadata,
                 chat_roots=chat_root if chat_root else None
             )
             ctx = load_context(context, contexts_root)
