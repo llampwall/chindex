@@ -1764,7 +1764,7 @@ def update_memory_cmd(
         raise typer.Exit(1)
 
     # Use first repo (multi-repo support is future work)
-    repo_root = Path(repos[0])
+    repo_root = Path(repos[0]["path"]) if isinstance(repos[0], dict) else Path(repos[0])
     if not repo_root.exists():
         typer.echo(f"Error: Repo not found: {repo_root}", err=True)
         raise typer.Exit(1)
