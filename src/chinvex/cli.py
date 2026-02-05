@@ -671,6 +671,53 @@ def context_list_cmd(
         list_contexts_cli()
 
 
+@context_app.command("sync-metadata-from-strap")
+def context_sync_metadata_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    registry: Path | None = typer.Option(None, "--registry", help="Path to registry.json (default: P:/software/_strap/registry.json)"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """
+    Sync repo metadata from strap registry.json to context.json.
+
+    Updates status, tags, and chinvex_depth for repos in the context
+    to match values in strap's registry.
+    """
+    from .context_cli import sync_metadata_from_strap
+
+    try:
+        result = sync_metadata_from_strap(context, registry)
+
+        if json_output:
+            import json
+            typer.echo(json.dumps(result, indent=2))
+        else:
+            if result["updated"]:
+                typer.secho(f"Updated {len(result['updated'])} repo(s):", fg=typer.colors.GREEN)
+                for item in result["updated"]:
+                    typer.echo(f"  {item['path']}")
+                    if item['old']['depth'] != item['new']['depth']:
+                        typer.echo(f"    depth: {item['old']['depth']} -> {item['new']['depth']}")
+                    if item['old']['status'] != item['new']['status']:
+                        typer.echo(f"    status: {item['old']['status']} -> {item['new']['status']}")
+                    if item['old']['tags'] != item['new']['tags']:
+                        typer.echo(f"    tags: {item['old']['tags']} -> {item['new']['tags']}")
+            else:
+                typer.echo("No changes needed (metadata already in sync)")
+
+            if result["not_found"]:
+                typer.secho(f"\nWarning: {len(result['not_found'])} repo(s) not found in registry:", fg=typer.colors.YELLOW)
+                for path in result["not_found"]:
+                    typer.echo(f"  {path}")
+
+    except FileNotFoundError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    except Exception as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+
 @context_app.command("exists")
 def context_exists_cmd(
     name: str = typer.Argument(..., help="Context name to check"),

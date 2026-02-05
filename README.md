@@ -479,7 +479,7 @@ Removes:
 
 ### Sync Daemon (File Watcher)
 
-The sync daemon monitors repos for changes and auto-ingests.
+The sync daemon monitors repos for changes and auto-ingests using real-time file system watching.
 
 **Start daemon**:
 ```powershell
@@ -508,11 +508,55 @@ chinvex sync reconcile-sources
 ```
 Updates watcher to monitor all repos from all contexts. Restarts daemon to apply changes.
 
-**How it works**:
-- Monitors git repos for `.git/refs/heads/` changes
-- Triggers incremental ingest on commit
-- Logs to `~/.chinvex/watcher.log`
-- PID file: `~/.chinvex/watcher.pid`
+#### How It Works
+
+The sync daemon uses **real-time file system watching** (not polling) with intelligent debouncing:
+
+1. **File System Watching** (via `watchdog` library)
+   - Creates OS-level file system observers for each repo in your contexts
+   - Watches recursively for `created`, `modified`, and `deleted` events
+   - **Instant detection** - no polling delay!
+
+2. **Change Accumulation & Debouncing** (30 seconds default)
+   - When files change, they're added to a per-context accumulator
+   - Waits for 30 seconds of "quiet time" after the last change before triggering ingest
+   - **5-minute cap**: If changes keep streaming in, forces ingest after 5 minutes max
+   - **500 file limit**: If >500 files change, triggers a full ingest instead of delta
+
+3. **Main Loop** (1-second tick)
+   - Checks all accumulators every second to see if ingestion should trigger
+   - Writes heartbeat every 30 seconds to `~/.chinvex/heartbeat.json`
+   - Triggers delta or full ingest when conditions are met
+
+**Example Timeline:**
+```
+00:00 - You save file1.py → Added to accumulator, timer starts
+00:05 - You save file2.py → Added to accumulator, timer resets to 00:05
+00:35 - 30s quiet period elapsed → Triggers delta ingest for [file1.py, file2.py]
+00:36 - Ingest completes → Context ready with latest changes
+```
+
+**Ingestion Status Tracking:**
+
+The daemon writes `.chinvex-status.json` to each repo during ingestion:
+- **Status="ingesting"**: Includes PID for staleness detection
+- **Status="idle"**: Ingestion complete, includes file count
+- **Status="error"**: Ingestion failed, includes error message
+- **Status="stale"**: Process died mid-ingest (detected by PID check)
+
+External tools (like [allmind dashboard](https://github.com/yourusername/allmind)) can read these files to display real-time ingestion status.
+
+**Logs and State:**
+- Daemon log: `~/.chinvex/sync.log`
+- PID file: `~/.chinvex/sync.pid`
+- Heartbeat: `~/.chinvex/heartbeat.json` (updated every 30s)
+- Status files: `.chinvex-status.json` in each repo root
+
+**Why This Design?**
+- **Real-time**: Catches changes immediately (no poll delay)
+- **Efficient**: Batches rapid saves into single ingest
+- **Responsive**: 30s debounce is fast enough for most workflows
+- **Safe**: 5-minute cap prevents infinite accumulation during active editing
 
 ## Advanced Features
 

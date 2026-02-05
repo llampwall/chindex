@@ -499,6 +499,7 @@ def ingest_context(
 
             # Track results for IngestRunResult
             started_at = datetime.now(timezone.utc)
+            started_at_iso = started_at.isoformat()
             new_doc_ids: list[str] = []
             updated_doc_ids: list[str] = []
             new_chunk_ids: list[str] = []
@@ -522,6 +523,18 @@ def ingest_context(
                 "skipped_doc_ids": skipped_doc_ids,
                 "error_doc_ids": error_doc_ids,
             }
+
+            # Write ingesting status to all repo paths
+            from .repo_status import write_repo_status
+            for repo_metadata in ctx.includes.repos:
+                if repo_metadata.path.exists():
+                    write_repo_status(
+                        repo_metadata.path,
+                        status="ingesting",
+                        context=ctx.name,
+                        ingest_type="full",
+                        started_at=started_at_iso,
+                    )
 
             try:
                 # Ingest repos
@@ -568,6 +581,17 @@ def ingest_context(
                         print(f"Archived {archived_count} docs (older than {ctx.archive.age_threshold_days}d)")
 
                 storage.close()
+
+                # Write idle status to all repo paths
+                for repo_metadata in ctx.includes.repos:
+                    if repo_metadata.path.exists():
+                        write_repo_status(
+                            repo_metadata.path,
+                            status="idle",
+                            context=ctx.name,
+                            files_processed=stats.get("documents", 0),
+                            started_at=started_at_iso,
+                        )
 
                 # Get watch stats (default to 0 for now - will be implemented in P1.4)
                 watches_active = 0
@@ -665,6 +689,16 @@ def ingest_context(
 
                 return result
             except Exception as e:
+                # Write error status to all repo paths
+                for repo_metadata in ctx.includes.repos:
+                    if repo_metadata.path.exists():
+                        write_repo_status(
+                            repo_metadata.path,
+                            status="error",
+                            context=ctx.name,
+                            error=str(e),
+                            started_at=started_at_iso,
+                        )
                 # Log failed run
                 log_run_end(log_path, run_id, status="failed", error=str(e))
                 raise
@@ -1233,11 +1267,11 @@ def ingest_delta(ctx, paths, *, contexts_root=None, ollama_host_override=None, e
         with Lock(lock_path, timeout=60):
             storage = Storage(db_path)
             storage.ensure_schema()
-            
+
             # Get embedding provider
             env_provider = os.getenv("CHINVEX_EMBED_PROVIDER")
             ollama_host = ollama_host_override or ctx.ollama.base_url
-            
+
             context_config = None
             if ctx.embedding:
                 context_config = {
@@ -1246,16 +1280,16 @@ def ingest_delta(ctx, paths, *, contexts_root=None, ollama_host_override=None, e
                         "model": ctx.embedding.model,
                     }
                 }
-            
+
             provider = get_provider(
                 cli_provider=embed_provider,
                 context_config=context_config,
                 env_provider=env_provider,
                 ollama_host=ollama_host
             )
-            
+
             vectors = VectorStore(chroma_dir)
-            
+
             stats = {
                 "documents": 0,
                 "chunks": 0,
@@ -1263,88 +1297,133 @@ def ingest_delta(ctx, paths, *, contexts_root=None, ollama_host_override=None, e
                 "files_processed": len(paths),
                 "embeddings_new": 0,
             }
-            
+
             started_at = datetime.now(timezone.utc)
-            
-            # Process each file
+            started_at_iso = started_at.isoformat()
+
+            # Determine which repos are affected by these paths
+            affected_repos = set()
             for path in paths:
-                if not path.exists():
-                    continue
-                    
-                # Simple implementation for repo files
-                _ingest_single_file(path, ctx, storage, provider, vectors, stats)
-            
-            finished_at = datetime.now(timezone.utc)
+                for repo_metadata in ctx.includes.repos:
+                    try:
+                        path.relative_to(repo_metadata.path)
+                        affected_repos.add(repo_metadata.path)
+                        break
+                    except ValueError:
+                        continue
 
-            storage.close()
+            # Write ingesting status to affected repo paths
+            from .repo_status import write_repo_status
+            for repo_path in affected_repos:
+                write_repo_status(
+                    repo_path,
+                    status="ingesting",
+                    context=ctx.name,
+                    ingest_type="delta",
+                    started_at=started_at_iso,
+                )
 
-            # Get watch stats (default to 0 for now - will be implemented in P1.4)
-            watches_active = 0
-            watches_pending_hits = 0
+            try:
+                # Process each file
+                for path in paths:
+                    if not path.exists():
+                        continue
 
-            # Write STATUS.json after delta ingest
-            from .status import write_status_json
+                    # Simple implementation for repo files
+                    _ingest_single_file(path, ctx, storage, provider, vectors, stats)
 
-            # Build sources list
-            sources = []
-            for repo in ctx.includes.repos:
-                sources.append({
-                    "type": "repo",
-                    "path": str(repo.path),
-                    "watching": True
-                })
-            for chat_root in ctx.includes.chat_roots:
-                sources.append({
-                    "type": "chat",
-                    "path": str(chat_root),
-                    "watching": False
-                })
+                finished_at = datetime.now(timezone.utc)
 
-            # Build embedding info
-            if ctx.embedding:
-                embedding_info = {
-                    "provider": ctx.embedding.provider,
-                    "model": ctx.embedding.model or "default",
-                    "dimensions": 1024
-                }
-            else:
-                embedding_info = {
-                    "provider": "ollama",
-                    "model": ctx.ollama.embed_model,
-                    "dimensions": 1024
-                }
+                storage.close()
 
-            # Add last_sync and watch stats to stats
-            stats["last_sync"] = now_iso()
-            stats["watches_active"] = watches_active
-            stats["watches_pending_hits"] = watches_pending_hits
+                # Write idle status to affected repo paths
+                for repo_path in affected_repos:
+                    write_repo_status(
+                        repo_path,
+                        status="idle",
+                        context=ctx.name,
+                        files_processed=stats.get("files_processed", 0),
+                        started_at=started_at_iso,
+                    )
 
-            # Write STATUS.json
-            if contexts_root:
-                context_dir = contexts_root / ctx.name
-            else:
-                # Fallback to old behavior (derive from db_path)
-                context_dir = db_path.parent.parent / ctx.name
-            context_dir.mkdir(parents=True, exist_ok=True)
+                # Get watch stats (default to 0 for now - will be implemented in P1.4)
+                watches_active = 0
+                watches_pending_hits = 0
 
-            stale_after_hours = 6  # Default
-            if hasattr(ctx, 'constraints') and ctx.constraints:
-                stale_after_hours = ctx.constraints.get('stale_after_hours', 6)
+                # Write STATUS.json after delta ingest
+                from .status import write_status_json
 
-            write_status_json(context_dir, stats, sources, embedding_info, stale_after_hours)
+                # Build sources list
+                sources = []
+                for repo in ctx.includes.repos:
+                    sources.append({
+                        "type": "repo",
+                        "path": str(repo.path),
+                        "watching": True
+                    })
+                for chat_root in ctx.includes.chat_roots:
+                    sources.append({
+                        "type": "chat",
+                        "path": str(chat_root),
+                        "watching": False
+                    })
 
-            return IngestRunResult(
-                run_id="delta",
-                context=ctx.name,
-                started_at=started_at,
-                finished_at=finished_at,
-                new_doc_ids=[],
-                updated_doc_ids=[],
-                new_chunk_ids=[],
-                skipped_doc_ids=[],
-                error_doc_ids=[],
-                stats=stats
-            )
+                # Build embedding info
+                if ctx.embedding:
+                    embedding_info = {
+                        "provider": ctx.embedding.provider,
+                        "model": ctx.embedding.model or "default",
+                        "dimensions": 1024
+                    }
+                else:
+                    embedding_info = {
+                        "provider": "ollama",
+                        "model": ctx.ollama.embed_model,
+                        "dimensions": 1024
+                    }
+
+                # Add last_sync and watch stats to stats
+                stats["last_sync"] = now_iso()
+                stats["watches_active"] = watches_active
+                stats["watches_pending_hits"] = watches_pending_hits
+
+                # Write STATUS.json
+                if contexts_root:
+                    context_dir = contexts_root / ctx.name
+                else:
+                    # Fallback to old behavior (derive from db_path)
+                    context_dir = db_path.parent.parent / ctx.name
+                context_dir.mkdir(parents=True, exist_ok=True)
+
+                stale_after_hours = 6  # Default
+                if hasattr(ctx, 'constraints') and ctx.constraints:
+                    stale_after_hours = ctx.constraints.get('stale_after_hours', 6)
+
+                write_status_json(context_dir, stats, sources, embedding_info, stale_after_hours)
+
+                return IngestRunResult(
+                    run_id="delta",
+                    context=ctx.name,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    new_doc_ids=[],
+                    updated_doc_ids=[],
+                    new_chunk_ids=[],
+                    skipped_doc_ids=[],
+                    error_doc_ids=[],
+                    stats=stats
+                )
+            except Exception as e:
+                # Write error status to affected repo paths
+                for repo_path in affected_repos:
+                    write_repo_status(
+                        repo_path,
+                        status="error",
+                        context=ctx.name,
+                        error=str(e),
+                        started_at=started_at_iso,
+                    )
+                raise
     except LockException as exc:
         raise RuntimeError("Ingest lock held by another process") from exc
 

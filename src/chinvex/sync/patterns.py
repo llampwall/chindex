@@ -11,6 +11,7 @@ from pathlib import Path
 EXCLUDE_PATTERNS = [
     # Chinvex outputs (would cause ingest storm)
     "**/STATUS.json",
+    "**/.chinvex-status.json",  # Per-repo ingestion status (for dashboard integration)
     "contexts/**/ingest_runs.jsonl",
     "contexts/**/digests/**",
     "**/MORNING_BRIEF.md",

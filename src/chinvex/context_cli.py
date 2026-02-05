@@ -264,3 +264,108 @@ def list_contexts_cli() -> None:
         if len(aliases_str) > 28:
             aliases_str = aliases_str[:25] + "..."
         typer.echo(f"{ctx.name:<20} {aliases_str:<30} {ctx.updated_at:<25}")
+
+
+def sync_metadata_from_strap(
+    context_name: str,
+    registry_path: Path | None = None,
+) -> dict:
+    """
+    Sync repo metadata from strap registry.json to chinvex context.json.
+
+    Reads strap's registry.json and updates matching repos in context.json
+    with current status, tags, and chinvex_depth values.
+
+    Args:
+        context_name: Name of the chinvex context to update
+        registry_path: Path to registry.json (defaults to P:/software/_strap/registry.json)
+
+    Returns:
+        Dict with sync results: {"updated": [...], "not_found": [...]}
+    """
+    # Default registry path
+    if registry_path is None:
+        registry_path = Path("P:/software/_strap/registry.json")
+
+    if not registry_path.exists():
+        raise FileNotFoundError(f"Registry not found: {registry_path}")
+
+    # Load registry.json
+    registry_data = json.loads(registry_path.read_text(encoding="utf-8"))
+    registry_repos = registry_data.get("repos", [])
+
+    # Build lookup map: normalized_path -> repo_entry
+    registry_map = {}
+    for repo_entry in registry_repos:
+        repo_path = repo_entry.get("repoPath") or repo_entry.get("name")
+        if repo_path:
+            normalized = normalize_path_for_dedup(repo_path)
+            registry_map[normalized] = repo_entry
+
+    # Load context.json
+    contexts_root = get_contexts_root()
+    context_file = contexts_root / context_name / "context.json"
+
+    if not context_file.exists():
+        raise FileNotFoundError(f"Context not found: {context_name}")
+
+    context_data = json.loads(context_file.read_text(encoding="utf-8"))
+
+    # Update repo metadata
+    updated = []
+    not_found = []
+
+    for repo in context_data["includes"].get("repos", []):
+        # Handle both string and dict formats
+        if isinstance(repo, str):
+            repo_path = repo
+            # Convert to dict format with defaults
+            repo = {
+                "path": repo_path,
+                "chinvex_depth": "full",
+                "status": "active",
+                "tags": []
+            }
+        else:
+            repo_path = repo["path"]
+
+        normalized = normalize_path_for_dedup(repo_path)
+
+        if normalized in registry_map:
+            registry_entry = registry_map[normalized]
+            old_values = {
+                "depth": repo.get("chinvex_depth", "full"),
+                "status": repo.get("status", "active"),
+                "tags": repo.get("tags", [])
+            }
+
+            # Update from registry
+            repo["chinvex_depth"] = registry_entry.get("chinvex_depth", "full")
+            repo["status"] = registry_entry.get("status", "active")
+            repo["tags"] = registry_entry.get("tags", [])
+
+            new_values = {
+                "depth": repo["chinvex_depth"],
+                "status": repo["status"],
+                "tags": repo["tags"]
+            }
+
+            if old_values != new_values:
+                updated.append({
+                    "path": repo_path,
+                    "old": old_values,
+                    "new": new_values
+                })
+        else:
+            not_found.append(repo_path)
+
+    # Update timestamp
+    context_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Write back
+    context_file.write_text(json.dumps(context_data, indent=2), encoding="utf-8")
+
+    return {
+        "updated": updated,
+        "not_found": not_found
+    }
