@@ -178,3 +178,20 @@
 2026-02-04 21:31:08: 2026-02-05T05:31:08Z ERR failed to serve incoming request error="Failed to proxy HTTP: Unable to reach the origin service. The service may be down or it may not be responding to traffic from cloudflared: dial tcp [::1]:7778: connectex: No connection could be made because the target machine actively refused it."
 2026-02-04 21:31:09: 2026-02-05T05:31:09Z ERR  error="Unable to reach the origin service. The service may be down or it may not be responding to traffic from cloudflared: dial tcp [::1]:7778: connectex: No connection could be made because the target machine actively refused it." connIndex=3 event=1 ingressRule=0 originService=http://localhost:7778
 2026-02-04 21:31:09: 2026-02-05T05:31:09Z ERR failed to serve incoming request error="Failed to proxy HTTP: Unable to reach the origin service. The service may be down or it may not be responding to traffic from cloudflared: dial tcp [::1]:7778: connectex: No connection could be made because the target machine actively refused it."
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF Starting tunnel tunnelID=cd3a8754-36ce-4fec-950c-a1e42cc40d50
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF Version 2025.8.1 (Checksum b5d598b00cc3a28cabc5812d9f762819334614bae452db4e7f23eefe7b081556)
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF GOOS: windows, GOVersion: go1.24.2, GoArch: amd64
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF Settings: map[cred-file:C:\Users\Jordan\.cloudflared\cd3a8754-36ce-4fec-950c-a1e42cc40d50.json credentials-file:C:\Users\Jordan\.cloudflared\cd3a8754-36ce-4fec-950c-a1e42cc40d50.json p:http2 protocol:http2]
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF cloudflared will not automatically update on Windows systems.
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF Generated Connector ID: 5f6c576d-8e8e-4482-aac7-30bfb7f8533e
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF Initial protocol http2
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF ICMP proxy will use 192.168.1.50 as source for IPv4
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF ICMP proxy will use 2603:8001:6a02:6e78::1850 in zone Ethernet as source for IPv6
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF cloudflared does not support loading the system root certificate pool on Windows. Please use --origin-ca-pool <PATH> to specify the path to the certificate pool
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF ICMP proxy will use 192.168.1.50 as source for IPv4
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF ICMP proxy will use 2603:8001:6a02:6e78::1850 in zone Ethernet as source for IPv6
+2026-02-05 00:00:00: 2026-02-05T08:00:00Z INF Starting metrics server on 127.0.0.1:20241/metrics
+2026-02-05 00:00:01: 2026-02-05T08:00:01Z INF Registered tunnel connection connIndex=0 connection=eca2382d-9967-4e95-b379-4f792ebd14fc event=0 ip=198.41.192.7 location=lax08 protocol=http2
+2026-02-05 00:00:01: 2026-02-05T08:00:01Z INF Registered tunnel connection connIndex=1 connection=00f7a628-ee44-4ad3-b755-4c47d89f25d8 event=0 ip=198.41.200.193 location=lax01 protocol=http2
+2026-02-05 00:00:02: 2026-02-05T08:00:02Z INF Registered tunnel connection connIndex=2 connection=9079f920-c999-4762-887c-ed45a86936b5 event=0 ip=198.41.200.33 location=lax06 protocol=http2
+2026-02-05 00:00:03: 2026-02-05T08:00:03Z INF Registered tunnel connection connIndex=3 connection=e68cea41-7454-4697-b9be-c5efeac2af8f event=0 ip=198.41.192.227 location=lax07 protocol=http2
