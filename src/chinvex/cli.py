@@ -1023,7 +1023,7 @@ def context_purge_cmd(
             else:
                 typer.secho(f"\nPurged context '{ctx_name}':", fg=typer.colors.GREEN)
             for item in deleted_items:
-                typer.echo(f"  ✓ {item}")
+                typer.echo(f"  [OK] {item}")
 
         all_deleted.extend(deleted_items)
         all_errors.extend(errors)
@@ -1038,7 +1038,7 @@ def context_purge_cmd(
         typer.echo()
         typer.secho("Errors encountered:", fg=typer.colors.RED)
         for error in all_errors:
-            typer.echo(f"  ✗ {error}")
+            typer.echo(f"  [ERROR] {error}")
         raise typer.Exit(code=1)
 
 
