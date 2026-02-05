@@ -73,6 +73,8 @@ def install_startup_hook(repo_root: Path, context_name: str) -> bool:
         }
     }
 
+    Also bootstraps docs/memory/ files if they don't exist.
+
     Args:
         repo_root: Repository root directory
         context_name: Chinvex context name
@@ -84,6 +86,23 @@ def install_startup_hook(repo_root: Path, context_name: str) -> bool:
     if not is_git_repo(repo_root):
         print(f"Warning: {repo_root} is not a git repository. Skipping hook installation.")
         return False
+
+    # Bootstrap memory files before installing hook
+    from .memory_templates import bootstrap_memory_files
+    try:
+        # Get current commit hash for coverage anchor
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        commit_hash = result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        commit_hash = "unknown"
+
+    bootstrap_memory_files(repo_root, commit_hash)
 
     claude_dir = repo_root / ".claude"
     claude_dir.mkdir(exist_ok=True)
