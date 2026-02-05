@@ -844,66 +844,36 @@ def context_archive_cmd(
         typer.echo("  Description: (none found)")
 
 
-@context_app.command("purge")
-def context_purge_cmd(
-    name: str = typer.Argument(..., help="Context name to purge"),
-    keep_watch_history: bool = typer.Option(False, "--keep-watch-history", help="Preserve watch_history.jsonl"),
-) -> None:
+def _purge_context_data(
+    ctx_name: str,
+    contexts_root: Path,
+    keep_watch_history: bool
+) -> tuple[list[str], list[str]]:
     """
-    Purge all index and embedding data for a context.
+    Purge index data for a single context.
 
-    This deletes:
-    - SQLite FTS5 index (hybrid.db)
-    - ChromaDB vector embeddings (chroma/ directory)
-    - Index metadata (meta.json)
-    - Watch history log (watch_history.jsonl) unless --keep-watch-history is used
-    - Digest cache (.digests/ directory)
-
-    The context configuration is preserved.
+    Returns:
+        (deleted_items, errors) tuple
     """
     import shutil
     from .context import load_context, ContextNotFoundError
-    from .storage import Storage
 
-    contexts_root = get_contexts_root()
-
-    # Load context to get index paths
     try:
-        ctx = load_context(name, contexts_root)
+        ctx = load_context(ctx_name, contexts_root)
     except ContextNotFoundError:
-        typer.secho(f"Context '{name}' does not exist", fg=typer.colors.RED)
-        raise typer.Exit(code=1)
+        return ([], [f"Context '{ctx_name}' does not exist"])
 
-    # Show what will be deleted
+    deleted_items = []
+    errors = []
+
+    # Collect file paths
     db_path = ctx.index.sqlite_path
     chroma_dir = ctx.index.chroma_dir
     index_dir = db_path.parent
     meta_json = index_dir / "meta.json"
-    context_dir = contexts_root / name
+    context_dir = contexts_root / ctx_name
     watch_history = context_dir / "watch_history.jsonl"
     digests_dir = context_dir / ".digests"
-
-    typer.echo(f"This will delete all index data for context '{name}':")
-    typer.echo(f"  - SQLite index: {db_path}")
-    typer.echo(f"  - Vector embeddings: {chroma_dir}")
-    typer.echo(f"  - Index metadata: {meta_json}")
-    if not keep_watch_history and watch_history.exists():
-        typer.echo(f"  - Watch history: {watch_history}")
-    if digests_dir.exists():
-        typer.echo(f"  - Digest cache: {digests_dir}")
-    typer.echo()
-
-    # Confirmation prompt
-    confirm = typer.confirm("Are you sure you want to purge this context?", default=False)
-    if not confirm:
-        typer.echo("Aborted.")
-        raise typer.Exit(code=0)
-
-    # Force close any open database connections
-    Storage.force_close_global_connection()
-
-    # Delete files
-    deleted_items = []
 
     try:
         # Delete SQLite database
@@ -931,25 +901,144 @@ def context_purge_cmd(
             shutil.rmtree(digests_dir)
             deleted_items.append(f"Digest cache: {digests_dir}")
 
-        # Show results
-        typer.secho(f"\nPurged context '{name}':", fg=typer.colors.GREEN)
-        for item in deleted_items:
-            typer.echo(f"  ✓ {item}")
-
-        if keep_watch_history and watch_history.exists():
-            typer.echo(f"\nPreserved:")
-            typer.echo(f"  - Watch history: {watch_history}")
-
     except PermissionError as e:
-        typer.secho(
-            f"Cannot purge context: files are locked. "
-            f"Stop any running processes using this context first.",
-            fg=typer.colors.RED
-        )
-        typer.echo(f"Error: {e}")
-        raise typer.Exit(code=1)
+        errors.append(f"Permission denied for '{ctx_name}': {e}")
     except Exception as e:
-        typer.secho(f"Error during purge: {e}", fg=typer.colors.RED)
+        errors.append(f"Error purging '{ctx_name}': {e}")
+
+    return (deleted_items, errors)
+
+
+@context_app.command("purge")
+def context_purge_cmd(
+    name: str | None = typer.Argument(None, help="Context name to purge"),
+    all_contexts: bool = typer.Option(False, "--all", help="Purge all contexts"),
+    keep_watch_history: bool = typer.Option(False, "--keep-watch-history", help="Preserve watch_history.jsonl"),
+) -> None:
+    """
+    Purge all index and embedding data for one or all contexts.
+
+    This deletes:
+    - SQLite FTS5 index (hybrid.db)
+    - ChromaDB vector embeddings (chroma/ directory)
+    - Index metadata (meta.json)
+    - Watch history log (watch_history.jsonl) unless --keep-watch-history is used
+    - Digest cache (.digests/ directory)
+
+    The context configuration is preserved.
+
+    Examples:
+        chinvex context purge allmind              # Purge one context
+        chinvex context purge --all                # Purge all contexts
+        chinvex context purge --all --keep-watch-history
+    """
+    import shutil
+    from .context import load_context, list_contexts, ContextNotFoundError
+    from .storage import Storage
+
+    contexts_root = get_contexts_root()
+
+    # Validate arguments
+    if not name and not all_contexts:
+        typer.secho("Error: Must specify context name or --all", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    if name and all_contexts:
+        typer.secho("Error: Cannot specify both context name and --all", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Get list of contexts to purge
+    if all_contexts:
+        all_ctx = list_contexts(contexts_root)
+        context_names = [ctx.name for ctx in all_ctx]
+
+        if not context_names:
+            typer.echo("No contexts found to purge.")
+            raise typer.Exit(code=0)
+
+        # Show all contexts that will be purged
+        typer.echo(f"This will purge {len(context_names)} context(s):")
+        for ctx_name in context_names:
+            typer.echo(f"  - {ctx_name}")
+        typer.echo()
+        typer.echo("Each context will have all index/embedding data deleted.")
+        typer.echo()
+
+        # Single confirmation prompt
+        confirm = typer.confirm(
+            f"Are you sure you want to purge ALL {len(context_names)} contexts?",
+            default=False
+        )
+        if not confirm:
+            typer.echo("Aborted.")
+            raise typer.Exit(code=0)
+    else:
+        # Single context - show detailed file list
+        try:
+            ctx = load_context(name, contexts_root)
+        except ContextNotFoundError:
+            typer.secho(f"Context '{name}' does not exist", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
+
+        context_names = [name]
+
+        # Show what will be deleted
+        db_path = ctx.index.sqlite_path
+        chroma_dir = ctx.index.chroma_dir
+        index_dir = db_path.parent
+        meta_json = index_dir / "meta.json"
+        context_dir = contexts_root / name
+        watch_history = context_dir / "watch_history.jsonl"
+        digests_dir = context_dir / ".digests"
+
+        typer.echo(f"This will delete all index data for context '{name}':")
+        typer.echo(f"  - SQLite index: {db_path}")
+        typer.echo(f"  - Vector embeddings: {chroma_dir}")
+        typer.echo(f"  - Index metadata: {meta_json}")
+        if not keep_watch_history and watch_history.exists():
+            typer.echo(f"  - Watch history: {watch_history}")
+        if digests_dir.exists():
+            typer.echo(f"  - Digest cache: {digests_dir}")
+        typer.echo()
+
+        # Confirmation prompt
+        confirm = typer.confirm("Are you sure you want to purge this context?", default=False)
+        if not confirm:
+            typer.echo("Aborted.")
+            raise typer.Exit(code=0)
+
+    # Force close any open database connections
+    Storage.force_close_global_connection()
+
+    # Purge each context
+    all_deleted = []
+    all_errors = []
+
+    for ctx_name in context_names:
+        deleted_items, errors = _purge_context_data(ctx_name, contexts_root, keep_watch_history)
+
+        if deleted_items:
+            if all_contexts:
+                typer.secho(f"\nPurged '{ctx_name}':", fg=typer.colors.GREEN)
+            else:
+                typer.secho(f"\nPurged context '{ctx_name}':", fg=typer.colors.GREEN)
+            for item in deleted_items:
+                typer.echo(f"  ✓ {item}")
+
+        all_deleted.extend(deleted_items)
+        all_errors.extend(errors)
+
+    # Show summary for --all
+    if all_contexts:
+        typer.echo()
+        typer.secho(f"Summary: Purged {len(context_names)} context(s)", fg=typer.colors.GREEN)
+
+    # Show any errors
+    if all_errors:
+        typer.echo()
+        typer.secho("Errors encountered:", fg=typer.colors.RED)
+        for error in all_errors:
+            typer.echo(f"  ✗ {error}")
         raise typer.Exit(code=1)
 
 

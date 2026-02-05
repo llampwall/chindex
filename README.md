@@ -206,6 +206,27 @@ chinvex context remove-repo MyProject --repo C:\Code\old-repo
 ```
 Removes path from `context.json`. Indexed chunks remain until `--rebuild-index`.
 
+**Purge index data**:
+```powershell
+# Purge one context (deletes all index/embedding data)
+chinvex context purge MyProject
+
+# Purge all contexts (single confirmation prompt)
+chinvex context purge --all
+
+# Keep watch history when purging
+chinvex context purge MyProject --keep-watch-history
+```
+
+Deletes all index and embedding data while preserving context configuration:
+- SQLite FTS5 index (`hybrid.db`)
+- ChromaDB vector embeddings (`chroma/` directory)
+- Index metadata (`meta.json`)
+- Watch history log (`watch_history.jsonl`) - unless `--keep-watch-history` is used
+- Digest cache (`.digests/` directory)
+
+Use this when you want to rebuild an index from scratch or clear all data. The context configuration remains intact, so you can re-ingest after purging.
+
 ### Archiving Contexts
 
 Archive an existing context to the `_archive` table of contents:
