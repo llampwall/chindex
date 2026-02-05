@@ -23,15 +23,16 @@ Unknown (needs human)
 Needs triage
 
 ## Next Actions
-- [ ] Run chinvex update-memory to populate this file
+- [ ] Review this file and update with current project state
+- [ ] Fill in Quick Reference with actual commands
 
 ## Quick Reference
-- Run: `(add command to start/run)`
-- Test: `(add command to run tests)`
-- Entry point: `(main file or module)`
+- Run: (command to start/run the project)
+- Test: (command to run tests)
+- Entry point: (main file or module)
 
 ## Out of Scope (for now)
-- TBD
+(Nothing explicitly deferred yet)
 
 ---
 Last memory update: {today}
