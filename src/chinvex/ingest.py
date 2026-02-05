@@ -493,12 +493,8 @@ def ingest_context(
                 )
                 write_index_meta(meta_path, meta)
 
-            # Use provider for embedding (wrap in OllamaEmbedder-compatible interface if needed)
-            # For now, keep using OllamaEmbedder directly
-            # TODO: refactor to use provider.embed() directly
-            embedding_model = ctx.ollama.embed_model
-            fallback_host = "http://127.0.0.1:11434" if ollama_host != "http://127.0.0.1:11434" else None
-            embedder = OllamaEmbedder(ollama_host, embedding_model, fallback_host=fallback_host)
+            # Use the selected provider for embeddings
+            embedder = provider
             vectors = VectorStore(chroma_dir)
 
             # Track results for IngestRunResult

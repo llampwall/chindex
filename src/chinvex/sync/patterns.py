@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 # Exclude patterns (fnmatch glob syntax)
+# These match the ingest SKIP_DIRS from util.py to keep behavior consistent
 EXCLUDE_PATTERNS = [
     # Chinvex outputs (would cause ingest storm)
     "**/STATUS.json",
@@ -19,14 +20,35 @@ EXCLUDE_PATTERNS = [
     # Per-repo chinvex artifacts
     "**/.chinvex/**",
     "**/docs/memory/**",
-    # Standard ignores
+    # SKIP_DIRS from util.py (same as ingest)
     "**/.git/**",
     "**/node_modules/**",
-    "**/__pycache__/**",
-    "**/*.pyc",
+    "**/dist/**",
+    "**/build/**",
+    "**/.next/**",
+    "**/coverage/**",
+    "**/out/**",
     "**/.venv/**",
     "**/venv/**",
-    # Chinvex internals (will be expanded with home dir)
+    "**/.codex/**",
+    "**/__pycache__/**",
+    "**/.pytest_cache/**",
+    "**/htmlcov/**",
+    "**/.eggs/**",
+    "**/chroma/**",
+    "**/.worktrees/**",
+    "**/.claude/**",
+    "**/.pnpm-store/**",
+    "**/.pnpm/**",
+    "**/.vscode/**",
+    "**/.ruff_cache/**",
+    "**/.cursor/**",
+    "**/.qodo/**",
+    # Additional file patterns
+    "**/*.pyc",
+    "**/logs/**",
+    "**/*.log",
+    # Chinvex internals (state directory)
     ".chinvex/*.log",
     ".chinvex/*.pid",
     ".chinvex/*.json",

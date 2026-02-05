@@ -155,8 +155,17 @@ class WatcherProcess:
         is_over_limit = accumulator.is_over_limit()
         changes = accumulator.get_and_clear()
 
-        # Build command
+        # Build command - use pythonw.exe explicitly for no console window
+        import sys
+        from pathlib import Path
         python_exe = sys.executable
+        # If running from .venv, explicitly use pythonw.exe for child processes
+        if "Scripts" in python_exe or "bin" in python_exe:
+            python_dir = Path(python_exe).parent
+            pythonw_exe = python_dir / "pythonw.exe"
+            if pythonw_exe.exists():
+                python_exe = str(pythonw_exe)
+
         cmd = [python_exe, "-m", "chinvex.cli", "ingest", "--context", context_name]
 
         if is_over_limit:
@@ -173,7 +182,7 @@ class WatcherProcess:
             if sys.platform == "win32":
                 subprocess.Popen(
                     cmd,
-                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
@@ -254,13 +263,29 @@ def main():
     state_dir = Path(sys.argv[1])
     contexts_root = Path(sys.argv[2])
 
-    # Configure logging
+    # Configure logging - log to both stdout (for PM2/dashboard) and file (for backup)
     log_file = state_dir / "sync.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        filename=str(log_file),
+
+    # Create formatters and handlers
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
+
+    # Stdout handler (for PM2 to capture)
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(formatter)
+    stdout_handler.setLevel(logging.INFO)
+
+    # File handler (for backup/debugging)
+    file_handler = logging.FileHandler(str(log_file))
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.DEBUG)  # More verbose in file
+
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(stdout_handler)
+    root_logger.addHandler(file_handler)
 
     # Discover sources
     sources = discover_watch_sources(contexts_root)
