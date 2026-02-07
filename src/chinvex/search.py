@@ -462,10 +462,13 @@ def hybrid_search_from_context(
     Returns:
         List of search results with scores
     """
+    from pathlib import Path
     from .storage import Storage
     from .vectors import VectorStore
     from .embed import OllamaEmbedder
+    from .embedding_providers import OpenAIProvider, OllamaProvider
     from .ranking import apply_recency_decay
+    from .index_meta import read_index_meta
 
     db_path = context.index.sqlite_path
     chroma_dir = context.index.chroma_dir
@@ -476,11 +479,30 @@ def hybrid_search_from_context(
     # FTS search
     fts_results = storage.search_fts(query, limit=k * 2)
 
-    # Vector search
-    embedder = OllamaEmbedder(
-        model=context.ollama.embed_model,
-        host=context.ollama.base_url
-    )
+    # Vector search - use embedding provider from meta.json
+    index_dir = Path(db_path).parent
+    meta_path = index_dir / "meta.json"
+    meta = read_index_meta(meta_path)
+
+    if not meta:
+        raise RuntimeError(
+            f"No meta.json found at {meta_path}. "
+            f"Context '{context.name}' must be reingested with a valid embedding provider. "
+            f"Run: chinvex ingest --context {context.name} --rebuild-index"
+        )
+
+    if meta.embedding_provider == "openai":
+        embedder = OpenAIProvider(api_key=None, model=meta.embedding_model)
+    elif meta.embedding_provider == "ollama":
+        # For ollama, fall back to context.ollama config for host
+        ollama_host = context.ollama.base_url if hasattr(context, 'ollama') else "http://localhost:11434"
+        embedder = OllamaProvider(ollama_host, meta.embedding_model)
+    else:
+        raise ValueError(
+            f"Unknown embedding provider '{meta.embedding_provider}' in meta.json. "
+            f"Supported providers: openai, ollama"
+        )
+
     vec_store = VectorStore(chroma_dir)
     query_embedding = embedder.embed([query])
     vec_results = vec_store.query(query_embedding, n_results=k * 2)
@@ -522,14 +544,23 @@ def _detect_mixed_embedding_providers(contexts: list[str], contexts_root) -> Non
     for ctx_name in contexts:
         try:
             ctx = load_context(ctx_name, contexts_root)
-            # Determine provider from embedding config or default to ollama
+            # Determine provider from embedding config
             if ctx.embedding:
                 provider = ctx.embedding.provider
                 model = ctx.embedding.model or "unknown"
             else:
-                # Legacy contexts default to ollama
-                provider = "ollama"
-                model = ctx.ollama.embed_model
+                # Legacy contexts without embedding field - check meta.json
+                from pathlib import Path
+                from .index_meta import read_index_meta
+                index_dir = Path(ctx.index.sqlite_path).parent
+                meta = read_index_meta(index_dir / "meta.json")
+                if meta:
+                    provider = meta.embedding_provider
+                    model = meta.embedding_model
+                else:
+                    # No meta.json or embedding config - assume needs reingestion
+                    provider = "unknown"
+                    model = "unknown"
 
             providers[ctx_name] = (provider, model)
         except Exception:

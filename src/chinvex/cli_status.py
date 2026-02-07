@@ -107,17 +107,18 @@ def generate_status_from_contexts(contexts_root: Path) -> str:
             freshness = data.get("freshness", {})
 
             # NEW: Read embedding provider from context.json
-            embedding_provider = "ollama"  # Default
-            embedding_model = None
+            embedding_provider = "openai"  # Default
+            embedding_model = "text-embedding-3-small"
 
             if context_json.exists():
                 try:
                     ctx_data = json.loads(context_json.read_text(encoding="utf-8"))
                     if "embedding" in ctx_data:
-                        embedding_provider = ctx_data["embedding"].get("provider", "ollama")
-                        embedding_model = ctx_data["embedding"].get("model")
-                    # If no embedding field, check ollama config for model name
+                        embedding_provider = ctx_data["embedding"].get("provider", "openai")
+                        embedding_model = ctx_data["embedding"].get("model", "text-embedding-3-small")
+                    # Legacy: check ollama config if no embedding field
                     elif "ollama" in ctx_data:
+                        embedding_provider = "ollama"
                         embedding_model = ctx_data["ollama"].get("embed_model")
                 except (json.JSONDecodeError, KeyError):
                     pass  # Use defaults

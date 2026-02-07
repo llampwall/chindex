@@ -58,9 +58,9 @@ def _create_global_context(contexts_root: Path, indexes_root: Path) -> None:
             "codex_session": 0.9,
             "note": 0.7
         },
-        "ollama": {
-            "base_url": "http://skynet:11434",
-            "embed_model": "mxbai-embed-large"
+        "embedding": {
+            "provider": "openai",
+            "model": "text-embedding-3-small"
         },
         "created_at": now,
         "updated_at": now,

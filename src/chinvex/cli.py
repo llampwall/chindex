@@ -347,7 +347,7 @@ def ingest_cmd(
         # Auto-create context if needed (unless --no-write-context)
         if no_write_context:
             # For --no-write-context, create context in memory only
-            from .context import ContextConfig, ContextIncludes, ContextIndex, OllamaConfig
+            from .context import ContextConfig, ContextIncludes, ContextIndex, EmbeddingConfig
             from datetime import datetime, timezone
 
             indexes_root = get_contexts_root().parent / "indexes"
@@ -385,9 +385,9 @@ def ingest_cmd(
                     chroma_dir=chroma_dir
                 ),
                 weights={"repo": 1.0, "chat": 0.8, "codex_session": 0.9, "note": 0.7},
-                ollama=OllamaConfig(
-                    base_url="http://skynet:11434",
-                    embed_model="mxbai-embed-large"
+                embedding=EmbeddingConfig(
+                    provider="openai",
+                    model="text-embedding-3-small"
                 ),
                 created_at=now,
                 updated_at=now
