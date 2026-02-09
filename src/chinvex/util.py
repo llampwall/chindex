@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -110,3 +111,42 @@ def normalize_path_for_dedup(path: str | Path) -> str:
         normalized = normalized.lower()
 
     return normalized
+
+
+def backup_context_json(context_file: Path) -> None:
+    """
+    Back up context.json before write operations.
+
+    Creates backup at P:/ai_memory/backups/<name>/context-{timestamp}.json
+    Keeps max 30 backups per context, pruning oldest.
+
+    Args:
+        context_file: Path to the context.json file to back up
+    """
+    # Only backup if file exists
+    if not context_file.exists():
+        return
+
+    # Extract context name from path (parent directory name)
+    context_name = context_file.parent.name
+
+    # Get backups root
+    backups_root = Path(os.getenv("CHINVEX_BACKUPS_ROOT", "P:/ai_memory/backups"))
+    backup_dir = backups_root / context_name
+
+    # Create backup directory if missing
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate timestamp in YYYYMMDD-HHMMSS format with milliseconds to prevent collisions
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:19]  # YYYYMMDD-HHMMSS-mmm (milliseconds)
+    backup_file = backup_dir / f"context-{timestamp}.json"
+
+    # Copy file with metadata preservation
+    shutil.copy2(context_file, backup_file)
+
+    # Prune old backups - keep max 30
+    backup_files = sorted(backup_dir.glob("context-*.json"))
+    if len(backup_files) > 30:
+        # Remove oldest files
+        for old_backup in backup_files[:-30]:
+            old_backup.unlink()

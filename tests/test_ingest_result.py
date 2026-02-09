@@ -51,14 +51,14 @@ def test_ingest_context_returns_result(tmp_path: Path, monkeypatch):
         "name": "TestContext",
         "aliases": [],
         "includes": {
-            "repos": [test_repo],
+            "repos": [str(test_repo)],
             "chat_roots": [],
             "codex_session_roots": [],
             "note_roots": []
         },
         "index": {
-            "sqlite_path": db_path,
-            "chroma_dir": chroma_dir
+            "sqlite_path": str(db_path),
+            "chroma_dir": str(chroma_dir)
         },
         "weights": {"repo": 1.0, "chat": 0.8, "codex_session": 0.9, "note": 0.7},
         "ollama": {"base_url": "http://127.0.0.1:11434", "embed_model": "mxbai-embed-large"},
@@ -110,14 +110,14 @@ def test_ingest_calls_post_hook(tmp_path: Path, monkeypatch):
         "name": "TestContext",
         "aliases": [],
         "includes": {
-            "repos": [test_repo],
+            "repos": [str(test_repo)],
             "chat_roots": [],
             "codex_session_roots": [],
             "note_roots": []
         },
         "index": {
-            "sqlite_path": db_path,
-            "chroma_dir": chroma_dir
+            "sqlite_path": str(db_path),
+            "chroma_dir": str(chroma_dir)
         },
         "weights": {"repo": 1.0, "chat": 0.8, "codex_session": 0.9, "note": 0.7},
         "ollama": {"base_url": "http://127.0.0.1:11434", "embed_model": "mxbai-embed-large"},

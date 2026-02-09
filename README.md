@@ -1142,6 +1142,41 @@ Downranks stale content without eliminating it. 90-day half-life means documents
 - `COHERE_API_KEY`: Cohere API key for reranking
 - `JINA_API_KEY`: Jina API key for reranking
 
+### Context Configuration Backups
+
+Chinvex automatically backs up `context.json` files before every write operation to prevent data loss.
+
+**Backup location**: `P:\ai_memory\backups\<context_name>\context-YYYYMMDD-HHMMSS-mmm.json`
+
+**Features**:
+- **Automatic**: Backs up before any context.json modification
+- **Retention**: Keeps 30 most recent backups per context (auto-prunes oldest)
+- **Timestamp**: Millisecond precision to prevent collisions
+- **No-op for new files**: Only backs up existing files
+
+**When backups are created**:
+- Context creation/updates
+- Repo addition/removal
+- Metadata sync from strap
+- Context rename
+- Schema upgrades
+
+**Configuration**:
+```powershell
+# Override backup directory (default: P:\ai_memory\backups)
+$env:CHINVEX_BACKUPS_ROOT = "C:\my-backups"
+```
+
+**Restore from backup**:
+```powershell
+# List backups for a context
+ls P:\ai_memory\backups\MyProject\
+
+# Restore from backup (copy to context directory)
+Copy-Item P:\ai_memory\backups\MyProject\context-20260209-123456-789.json `
+          P:\ai_memory\contexts\MyProject\context.json
+```
+
 ### Runbook Scripts
 
 Located in `scripts/`:

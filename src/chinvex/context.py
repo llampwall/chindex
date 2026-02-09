@@ -344,12 +344,15 @@ class ContextConfig:
 
 def load_context(name: str, contexts_root: Path) -> ContextConfig:
     """Load context by name or alias with auto-upgrade from v1 to v2."""
+    from .util import backup_context_json
+
     # Try direct name match first
     context_path = contexts_root / name / "context.json"
     if context_path.exists():
         data = json.loads(context_path.read_text(encoding="utf-8"))
         data, upgraded = _maybe_upgrade_schema(data)
         if upgraded:
+            backup_context_json(context_path)
             context_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return ContextConfig.from_dict(data)
 
@@ -365,6 +368,7 @@ def load_context(name: str, contexts_root: Path) -> ContextConfig:
         if name in aliases:
             data, upgraded = _maybe_upgrade_schema(data)
             if upgraded:
+                backup_context_json(context_file)
                 context_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
             return ContextConfig.from_dict(data)
 

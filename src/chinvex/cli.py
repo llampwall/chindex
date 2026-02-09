@@ -347,7 +347,7 @@ def ingest_cmd(
         # Auto-create context if needed (unless --no-write-context)
         if no_write_context:
             # For --no-write-context, create context in memory only
-            from .context import ContextConfig, ContextIncludes, ContextIndex, EmbeddingConfig
+            from .context import ContextConfig, ContextIncludes, ContextIndex, EmbeddingConfig, OllamaConfig, RepoMetadata
             from datetime import datetime, timezone
 
             indexes_root = get_contexts_root().parent / "indexes"
@@ -369,13 +369,21 @@ def ingest_cmd(
             if not (chroma_dir / "chroma.sqlite3").exists():
                 vectors = VectorStore(chroma_dir)
 
+            # Parse tags
+            tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+
             now = datetime.now(timezone.utc).isoformat()
             ctx = ContextConfig(
                 schema_version=1,
                 name=context,
                 aliases=[],
                 includes=ContextIncludes(
-                    repos=[Path(r).resolve() for r in repo],
+                    repos=[RepoMetadata(
+                        path=Path(r).resolve(),
+                        chinvex_depth=chinvex_depth,
+                        status=status,
+                        tags=tag_list
+                    ) for r in repo],
                     chat_roots=[Path(c).resolve() for c in chat_root],
                     codex_session_roots=[],
                     note_roots=[]
@@ -385,6 +393,10 @@ def ingest_cmd(
                     chroma_dir=chroma_dir
                 ),
                 weights={"repo": 1.0, "chat": 0.8, "codex_session": 0.9, "note": 0.7},
+                ollama=OllamaConfig(
+                    base_url="http://skynet:11434",
+                    embed_model="mxbai-embed-large"
+                ),
                 embedding=EmbeddingConfig(
                     provider="openai",
                     model="text-embedding-3-small"
@@ -776,6 +788,7 @@ def context_rename_cmd(
         raise typer.Exit(code=1)
 
     # Update context.json
+    from .util import backup_context_json
     context_file = new_ctx_dir / "context.json"
     if context_file.exists():
         ctx_data = json.loads(context_file.read_text(encoding="utf-8"))
@@ -784,6 +797,7 @@ def context_rename_cmd(
         if "index" in ctx_data:
             ctx_data["index"]["sqlite_path"] = str(new_idx_dir / "hybrid.db")
             ctx_data["index"]["chroma_dir"] = str(new_idx_dir / "chroma")
+        backup_context_json(context_file)
         context_file.write_text(json.dumps(ctx_data, indent=2), encoding="utf-8")
 
     typer.secho(f"Renamed context '{old_name}' to '{new_name}'", fg=typer.colors.GREEN)
@@ -816,14 +830,22 @@ def context_remove_repo_cmd(
 
     # Find and remove matching repo
     original_count = len(repos)
-    repos = [r for r in repos if normalize_path_for_dedup(r) != target_normalized]
+    filtered_repos = []
+    for r in repos:
+        # Handle both string and dict formats
+        repo_path = r if isinstance(r, str) else r.get("path", "")
+        if normalize_path_for_dedup(repo_path) != target_normalized:
+            filtered_repos.append(r)
+    repos = filtered_repos
 
     if len(repos) == original_count:
         typer.secho(f"Repo path not found in context '{context}': {repo}", fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
     # Update and save
+    from .util import backup_context_json
     ctx_data["includes"]["repos"] = repos
+    backup_context_json(context_file)
     context_file.write_text(json.dumps(ctx_data, indent=2), encoding="utf-8")
 
     typer.secho(f"Removed repo from context '{context}': {repo}", fg=typer.colors.GREEN)
@@ -870,7 +892,9 @@ def context_archive_cmd(
 
     # Extract description from first repo using fallback chain
     description = ""
-    for repo_path in repos:
+    for repo_entry in repos:
+        # Handle both string and dict formats
+        repo_path = repo_entry if isinstance(repo_entry, str) else repo_entry.get("path", "")
         repo_dir = Path(repo_path)
         if repo_dir.exists():
             description = _extract_description_from_dir(repo_dir)

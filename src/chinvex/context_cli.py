@@ -9,7 +9,7 @@ import typer
 
 from .context import ContextConfig, list_contexts, load_context
 from .storage import Storage
-from .util import normalize_path_for_dedup
+from .util import backup_context_json, normalize_path_for_dedup
 from .vectors import VectorStore
 
 
@@ -96,6 +96,7 @@ def create_context_if_missing(
             ctx_config["updated_at"] = datetime.now(timezone.utc).isoformat()
 
             # Write back
+            backup_context_json(context_file)
             context_file.write_text(json.dumps(ctx_config, indent=2), encoding="utf-8")
         return  # Already exists
 
@@ -159,6 +160,7 @@ def create_context_if_missing(
         "updated_at": now
     }
 
+    backup_context_json(context_file)
     context_file.write_text(json.dumps(context_data, indent=2), encoding="utf-8")
 
     # Initialize database
@@ -225,6 +227,7 @@ def create_context(name: str) -> None:
     }
 
     context_file = ctx_dir / "context.json"
+    backup_context_json(context_file)
     context_file.write_text(json.dumps(context_data, indent=2), encoding="utf-8")
 
     # Initialize database
@@ -363,6 +366,7 @@ def sync_metadata_from_strap(
     context_data["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     # Write back
+    backup_context_json(context_file)
     context_file.write_text(json.dumps(context_data, indent=2), encoding="utf-8")
 
     return {
