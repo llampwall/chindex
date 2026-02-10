@@ -11,6 +11,7 @@ Hybrid retrieval index CLI (SQLite FTS5 + Chroma) powered by configurable embedd
 - [Ingestion & Search](#ingestion--search)
 - [Bootstrap & Automation](#bootstrap--automation)
 - [Advanced Features](#advanced-features)
+- [Skills for AI Agents](#skills-for-ai-agents)
 - [MCP Server](#mcp-server)
 - [Gateway API](#gateway-api)
 - [Technical Deep Dive](#technical-deep-dive)
@@ -646,6 +647,68 @@ chinvex watch history --context MyProject --id <watch-id>
 Watches track result changes over time and can trigger notifications when results change.
 
 ### State Management
+
+Chinvex can generate and manage `STATE.md` files for project context.
+
+## Skills for AI Agents
+
+Chinvex includes skills for Claude Code and Codex that teach AI agents how to use the chinvex CLI effectively.
+
+### Using the Skills
+
+The **`using-chinvex`** skill is automatically available to both Claude Code and Codex. It provides:
+- Complete CLI command reference
+- Multi-step workflows (provider switching, depth changes, metadata sync)
+- Common mistakes and how to avoid them
+- Real-world usage patterns
+
+**Location**: Skills are stored in `skills/` and symlinked to both agent skill directories:
+```
+skills/using-chinvex/          # Source (version controlled)
+  ↓ (junction)
+~/.claude/skills/using-chinvex  # Claude Code
+~/.codex/skills/using-chinvex   # Codex
+```
+
+### What the Skill Teaches
+
+**Core workflows:**
+- Searching knowledge base (single context, multi-context, all contexts)
+- Setting up new contexts and ingesting repos
+- Using sync daemon for automatic updates
+- Syncing metadata from strap registry
+- Switching embedding providers with `--rebuild-index`
+- Changing ingestion depth (full → light → index)
+
+**Critical gotchas:**
+- Provider switches require `--rebuild-index` (dimension mismatch prevention)
+- Depth changes need two steps: `sync-metadata-from-strap` → `ingest --rebuild-index`
+- Status/tags changes need only `sync-metadata-from-strap` (no rebuild)
+- Don't use `purge → ingest` when `--rebuild-index` is more efficient
+
+**Command categories:**
+- `ingest`: Adding/updating content
+- `search`: Querying the knowledge base
+- `sync`: File watcher daemon management
+- `context`: Context management commands
+- `brief`, `update-memory`: Memory system integration
+
+### Skill Development
+
+The skill was created using TDD methodology:
+1. **RED**: Baseline tests identified gaps (missing `--rebuild-index`, unknown `sync-metadata-from-strap`)
+2. **GREEN**: Wrote skill addressing specific failures
+3. **REFACTOR**: Closed loopholes (explicitly forbid inefficient workarounds)
+
+See `skills/using-chinvex/SKILL.md` for the complete skill content.
+
+### Contributing Skills
+
+To add new skills:
+1. Create skill in `skills/new-skill-name/SKILL.md`
+2. Skills are automatically available via junctions
+3. Follow TDD process: baseline test → write skill → verify → refactor
+4. Commit to repo for version control
 
 Chinvex can generate and manage `STATE.md` files for project context.
 
