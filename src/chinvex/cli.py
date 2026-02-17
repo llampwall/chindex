@@ -166,7 +166,7 @@ def _add_to_archive_context(name: str, description: str) -> None:
 def _delete_context(name: str) -> bool:
     """
     Delete a context and its index directory.
-    Returns True if deleted, False if not found.
+    Returns True if anything was deleted, False if neither directory exists.
     Raises PermissionError if files are locked.
     """
     import shutil
@@ -178,16 +178,17 @@ def _delete_context(name: str) -> bool:
     ctx_dir = contexts_root / name
     idx_dir = indexes_root / name
 
-    if not ctx_dir.exists():
+    if not ctx_dir.exists() and not idx_dir.exists():
         return False
 
     # Force close any open database connections
     Storage.force_close_global_connection()
 
-    # Delete context directory
-    shutil.rmtree(ctx_dir)
+    # Delete context directory if present
+    if ctx_dir.exists():
+        shutil.rmtree(ctx_dir)
 
-    # Delete index directory
+    # Delete index directory if present (may exist without context dir)
     if idx_dir.exists():
         shutil.rmtree(idx_dir)
 
@@ -932,17 +933,15 @@ def _purge_context_data(
 ) -> tuple[bool, str | None]:
     """
     Completely purge a context - deletes the context directory and its index directory.
+    Works even if only the index directory exists (orphaned index).
 
     Returns:
         (success, error_message) tuple
     """
-    context_dir = contexts_root / ctx_name
-
-    if not context_dir.exists():
-        return (False, f"Context '{ctx_name}' does not exist")
-
     try:
-        _delete_context(ctx_name)
+        deleted = _delete_context(ctx_name)
+        if not deleted:
+            return (False, f"Context '{ctx_name}' does not exist")
         return (True, None)
     except PermissionError as e:
         return (False, f"Permission denied for '{ctx_name}': {e}")
@@ -1012,14 +1011,18 @@ def context_purge_cmd(
     else:
         context_names = [name]
         context_dir = contexts_root / name
+        index_dir = get_indexes_root() / name
 
-        if not context_dir.exists():
+        if not context_dir.exists() and not index_dir.exists():
             typer.secho(f"Context '{name}' does not exist", fg=typer.colors.RED)
             raise typer.Exit(code=1)
 
         # Show what will be deleted
         typer.echo(f"This will COMPLETELY DELETE context '{name}':")
-        typer.echo(f"  - Entire context directory: {context_dir}")
+        if context_dir.exists():
+            typer.echo(f"  - Context directory: {context_dir}")
+        if index_dir.exists():
+            typer.echo(f"  - Index directory:   {index_dir}")
         typer.echo()
         typer.echo("WARNING: This deletes everything including configuration.")
         typer.echo()
