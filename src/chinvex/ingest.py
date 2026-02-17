@@ -580,6 +580,8 @@ def ingest_context(
                     if archived_count > 0:
                         print(f"Archived {archived_count} docs (older than {ctx.archive.age_threshold_days}d)")
 
+                total_chunks = storage.count_chunks()
+                total_documents = storage.count_documents()
                 storage.close()
 
                 # Write idle status to all repo paths
@@ -654,7 +656,7 @@ def ingest_context(
                 if hasattr(ctx, 'constraints') and ctx.constraints:
                     stale_after_hours = ctx.constraints.get('stale_after_hours', 6)
 
-                write_status_json(context_dir, stats, sources, embedding_info, stale_after_hours)
+                write_status_json(context_dir, stats, sources, embedding_info, stale_after_hours, total_chunks=total_chunks, total_documents=total_documents)
 
                 result = IngestRunResult(
                     run_id=run_id,
@@ -1334,6 +1336,8 @@ def ingest_delta(ctx, paths, *, contexts_root=None, ollama_host_override=None, e
 
                 finished_at = datetime.now(timezone.utc)
 
+                total_chunks = storage.count_chunks()
+                total_documents = storage.count_documents()
                 storage.close()
 
                 # Write idle status to affected repo paths
@@ -1399,7 +1403,7 @@ def ingest_delta(ctx, paths, *, contexts_root=None, ollama_host_override=None, e
                 if hasattr(ctx, 'constraints') and ctx.constraints:
                     stale_after_hours = ctx.constraints.get('stale_after_hours', 6)
 
-                write_status_json(context_dir, stats, sources, embedding_info, stale_after_hours)
+                write_status_json(context_dir, stats, sources, embedding_info, stale_after_hours, total_chunks=total_chunks, total_documents=total_documents)
 
                 return IngestRunResult(
                     run_id="delta",

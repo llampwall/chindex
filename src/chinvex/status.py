@@ -14,7 +14,9 @@ def write_status_json(
     stats: dict,
     sources: list[dict],
     embedding: dict,
-    stale_after_hours: int = 6
+    stale_after_hours: int = 6,
+    total_chunks: int | None = None,
+    total_documents: int | None = None,
 ) -> None:
     """
     Write STATUS.json for a context after ingest.
@@ -25,6 +27,8 @@ def write_status_json(
         sources: List of source dicts with {type, path, watching}
         embedding: Embedding config dict
         stale_after_hours: Hours before context is considered stale (default 6)
+        total_chunks: Total chunks in index (overrides stats["chunks"] which is per-run delta)
+        total_documents: Total documents in index
     """
     context_name = context_dir.name
 
@@ -35,7 +39,8 @@ def write_status_json(
     status = {
         "context": context_name,
         "last_sync": last_sync,
-        "chunks": stats.get("chunks", 0),
+        "chunks": total_chunks if total_chunks is not None else stats.get("chunks", 0),
+        "documents": total_documents if total_documents is not None else stats.get("documents", 0),
         "watches_active": stats.get("watches_active", 0),
         "watches_pending_hits": stats.get("watches_pending_hits", 0),
         "freshness": freshness,

@@ -327,6 +327,16 @@ class Storage:
                 "Install a Python build with SQLite FTS5 enabled."
             ) from exc
 
+    def count_chunks(self) -> int:
+        """Return total number of chunks in the index."""
+        cur = self._execute("SELECT COUNT(*) FROM chunks")
+        return cur.fetchone()[0]
+
+    def count_documents(self) -> int:
+        """Return total number of documents in the index."""
+        cur = self._execute("SELECT COUNT(*) FROM documents")
+        return cur.fetchone()[0]
+
     def get_document(self, doc_id: str) -> sqlite3.Row | None:
         cur = self._execute("SELECT * FROM documents WHERE doc_id = ?", (doc_id,))
         return cur.fetchone()
