@@ -4,18 +4,18 @@
 # State
 
 ## Current Objective
-Infrastructure hardening: connection management, purge correctness, strap uninstall cleanup
+Embedding provider migration: purge ollama defaults, establish openai as default everywhere
 
 ## Active Work
-- All session tasks complete (purge bugs fixed, orphaned indexes cleared, scripts organized)
+- Ollama→OpenAI default migration complete (code, tests, data, README all updated, uncommitted)
 
 ## Blockers
 None
 
 ## Next Actions
-- [ ] Test strap uninstall end-to-end to confirm purge now leaves nothing behind
-- [ ] Test dashboard status integration end-to-end
-- [ ] Validate depth change workflow (sync metadata + rebuild-index)
+- [ ] Commit ollama→openai migration changes
+- [ ] Re-ingest contexts with 0 chunks using OpenAI embeddings
+- [ ] Test strap uninstall end-to-end to confirm purge leaves nothing behind
 - [ ] Complete P5b planning and implementation (memory maintainer, startup hooks)
 - [ ] Validate eval suite with >=80% hit rate baseline
 
@@ -34,6 +34,6 @@ None
 
 ---
 Last memory update: 2026-02-17
-Commits covered through: a074d0f9b40468ff5e1796424069d537054c796c
+Commits covered through: 7f676ea30d7254bccde40dcbd09acfec8a41d5ef
 
-<!-- chinvex:last-commit:a074d0f9b40468ff5e1796424069d537054c796c -->
+<!-- chinvex:last-commit:7f676ea30d7254bccde40dcbd09acfec8a41d5ef -->

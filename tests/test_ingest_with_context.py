@@ -14,17 +14,25 @@ def test_ingest_with_context_name(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CHINVEX_CONTEXTS_ROOT", str(contexts_root))
     monkeypatch.setenv("CHINVEX_INDEXES_ROOT", str(indexes_root))
 
-    # Mock ollama
-    class FakeEmbedder:
-        def __init__(self, host: str, model: str, fallback_host: str | None = None):
-            self.host = host
-            self.model = model
-            self.fallback_host = fallback_host
+    # Mock embedding provider
+    class FakeProvider:
+        model = "fake-model"
+
+        @property
+        def dimensions(self):
+            return 3
+
+        @property
+        def model_name(self):
+            return "fake-model"
 
         def embed(self, texts: list[str]) -> list[list[float]]:
             return [[0.1, 0.2, 0.3] for _ in texts]
 
-    monkeypatch.setattr("chinvex.ingest.OllamaEmbedder", FakeEmbedder)
+    monkeypatch.setattr(
+        "chinvex.embedding_providers.get_provider",
+        lambda *a, **kw: FakeProvider()
+    )
 
     # Create context
     repo = tmp_path / "test_repo"

@@ -53,5 +53,7 @@
 - Status files trigger sync daemon if not excluded (infinite loop)
 - Going from deeper to shallower depth without rebuild leaves stale data in index (will show up in queries)
 - Hardcoding embedding provider in search causes dimension mismatch when context was ingested with a different provider
+- Legacy context.json files without `embedding` block get `openai/text-embedding-3-small` at load time via `from_dict()` fallback (added 2026-02-17)
 
 ## Superseded
+- (Superseded 2026-02-17) Default embedding provider was ollama/mxbai-embed-large — now openai/text-embedding-3-small everywhere (code, tests, data, README)

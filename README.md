@@ -40,8 +40,8 @@ chinvex bootstrap install
 
 ### Prerequisites
 - Python 3.12
-- Ollama installed and running (for local embeddings)
-- `ollama pull mxbai-embed-large` (or use OpenAI with `--embed-provider openai`)
+- OpenAI API key (`OPENAI_API_KEY` environment variable) for default embeddings
+- Alternatively, Ollama for local embeddings (`--embed-provider ollama`)
 
 ### Install (venv required)
 ```powershell
@@ -274,7 +274,7 @@ chinvex ingest --context MyProject --repo C:\Code\myproject --chat-root P:\ai_me
 
 ### Ingestion Flags
 
-- `--embed-provider {ollama|openai}`: Choose embedding provider (default: ollama)
+- `--embed-provider {openai|ollama}`: Choose embedding provider (default: openai)
 - `--rebuild-index`: Force full rebuild instead of incremental update
 - `--no-write-context`: Prevent auto-creation of missing contexts (fail instead)
 - `--no-claude-hook`: Skip automatic Claude Code hook installation
@@ -352,30 +352,30 @@ chinvex ingest --context MyProject --embed-provider openai --rebuild-index
 
 ### Embedding Providers
 
-**Ollama (default)**:
+**OpenAI (default)**:
 ```powershell
 chinvex ingest --context MyProject
-```
-- Model: `mxbai-embed-large` (1024 dimensions)
-- Free, runs locally
-- Requires Ollama running
-
-**OpenAI**:
-```powershell
-chinvex ingest --context MyProject --embed-provider openai
 ```
 - Model: `text-embedding-3-small` (1536 dimensions)
 - Fast, reliable, requires API key
 - Batching (up to 2048 texts per request)
 - Automatic retry with exponential backoff
 
-Set `OPENAI_API_KEY` environment variable for OpenAI.
+Set `OPENAI_API_KEY` environment variable.
+
+**Ollama (local alternative)**:
+```powershell
+chinvex ingest --context MyProject --embed-provider ollama
+```
+- Model: `mxbai-embed-large` (1024 dimensions)
+- Free, runs locally
+- Requires Ollama running (`ollama pull mxbai-embed-large`)
 
 **Provider precedence**:
 1. CLI flag (`--embed-provider`)
 2. Context config (`embedding.provider` in context.json)
 3. Environment variable (`CHINVEX_EMBED_PROVIDER`)
-4. Default (ollama with mxbai-embed-large)
+4. Default (openai with text-embedding-3-small)
 
 **Dimension safety**: Chinvex prevents mixing embeddings with different dimensions. Switching providers requires `--rebuild-index`.
 
@@ -1184,8 +1184,8 @@ Downranks stale content without eliminating it. 90-day half-life means documents
 - Reranking (if enabled): +200-2000ms
 
 **Ingestion throughput**:
-- Local embeddings (Ollama): ~100-500 docs/min
 - OpenAI embeddings: ~1000-5000 docs/min (batching)
+- Local embeddings (Ollama): ~100-500 docs/min
 - SQLite writes: ~5000-10000 chunks/sec
 
 **Scalability limits**:

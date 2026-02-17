@@ -68,7 +68,7 @@ class ArchiveConfig:
 @dataclass(frozen=True)
 class EmbeddingConfig:
     """Embedding provider configuration (P4)."""
-    provider: str  # "ollama" or "openai"
+    provider: str  # "openai" (default) or "ollama"
     model: str | None = None  # Optional model override
 
 
@@ -219,12 +219,17 @@ class ContextConfig:
             )
 
         # P4: embedding config (optional)
-        embedding = None
         if "embedding" in data:
             emb_data = data["embedding"]
             embedding = EmbeddingConfig(
-                provider=emb_data.get("provider", "ollama"),
+                provider=emb_data.get("provider", "openai"),
                 model=emb_data.get("model"),
+            )
+        else:
+            # Legacy contexts without embedding block — default to OpenAI
+            embedding = EmbeddingConfig(
+                provider="openai",
+                model="text-embedding-3-small",
             )
 
         # P5.4: reranker config (optional)

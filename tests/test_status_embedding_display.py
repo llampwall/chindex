@@ -64,7 +64,7 @@ def test_status_shows_embedding_provider(tmp_path):
 
 
 def test_status_legacy_context_shows_ollama_default(tmp_path):
-    """Legacy contexts without embedding config should show 'ollama (default)'."""
+    """Legacy contexts without embedding config should show 'openai' (the actual default)."""
     contexts_root = tmp_path / "contexts"
     contexts_root.mkdir()
 
@@ -95,6 +95,6 @@ def test_status_legacy_context_shows_ollama_default(tmp_path):
 
     output = generate_status_from_contexts(contexts_root)
 
-    # Should show ollama as default for legacy contexts
-    assert "ollama" in output.lower()
+    # Legacy contexts without embedding field should show openai (the actual default)
+    assert "openai" in output.lower()
     assert "LegacyContext" in output

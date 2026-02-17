@@ -116,10 +116,8 @@ def generate_status_from_contexts(contexts_root: Path) -> str:
                     if "embedding" in ctx_data:
                         embedding_provider = ctx_data["embedding"].get("provider", "openai")
                         embedding_model = ctx_data["embedding"].get("model", "text-embedding-3-small")
-                    # Legacy: check ollama config if no embedding field
-                    elif "ollama" in ctx_data:
-                        embedding_provider = "ollama"
-                        embedding_model = ctx_data["ollama"].get("embed_model")
+                    # Legacy: no embedding field — use default (OpenAI)
+                    # Old ollama block is ignored; openai is the actual default
                 except (json.JSONDecodeError, KeyError):
                     pass  # Use defaults
 

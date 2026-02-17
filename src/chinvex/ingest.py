@@ -631,9 +631,9 @@ def ingest_context(
                     }
                 else:
                     embedding_info = {
-                        "provider": "ollama",
-                        "model": ctx.ollama.embed_model,
-                        "dimensions": 1024
+                        "provider": "openai",
+                        "model": "text-embedding-3-small",
+                        "dimensions": 1536
                     }
 
                 # Add last_sync and watch stats to stats
@@ -1377,9 +1377,9 @@ def ingest_delta(ctx, paths, *, contexts_root=None, ollama_host_override=None, e
                     }
                 else:
                     embedding_info = {
-                        "provider": "ollama",
-                        "model": ctx.ollama.embed_model,
-                        "dimensions": 1024
+                        "provider": "openai",
+                        "model": "text-embedding-3-small",
+                        "dimensions": 1536
                     }
 
                 # Add last_sync and watch stats to stats

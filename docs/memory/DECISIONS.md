@@ -4,17 +4,30 @@
 # Decisions
 
 ## Recent (last 30 days)
+- Purged all ollama defaults: openai/text-embedding-3-small is now the default everywhere (code, data, tests, README)
+- Patched 13 legacy context.json files to add explicit `embedding` config block
 - Fixed context purge to delete index dir + handle orphaned index-only dirs (strap uninstall now fully clean)
 - Implemented proper connection management for ChromaDB and SQLite (fixes Windows file lock errors)
-- Fixed OpenAI as default embedding provider; search reads provider from meta.json (prevents dimension mismatch)
 - Added automatic context.json backup system (30 backups per context, auto-prune)
 - Created using-chinvex skill for Claude Code and Codex with full CLI workflow docs
 - Add `chinvex context sync-metadata-from-strap` command to sync registry.json → context.json
-- Implement .chinvex-status.json files with PID tracking for dashboard integration
 - Complete P5.3 eval suite with golden queries, metrics, and CI gate
 - Complete P5.4 reranker with Cohere, Jina, and local cross-encoder providers
 
 ## 2026-02
+
+### 2026-02-17 — Purged ollama defaults: openai is now the default embedding provider
+
+- **Why:** 12 of 19 contexts had no `embedding` config block and fell back to ollama/mxbai-embed-large. Multiple code paths still defaulted to ollama. This caused status display to show ollama and would fail ingestion with OpenAI.
+- **Impact:**
+  - `context.py`: `from_dict()` default changed from ollama to openai; legacy contexts without `embedding` block now get `EmbeddingConfig(provider="openai", model="text-embedding-3-small")` instead of `None`
+  - `ingest.py`: Two fallback `embedding_info` blocks changed from ollama to openai
+  - `watch/runner.py`: Replaced hardcoded `OllamaEmbedder` with `get_provider()` from `embedding_providers.py`
+  - `cli_status.py`: Removed legacy ollama fallback display
+  - Patched 13 context.json files to add explicit `embedding` config
+  - Updated 3 test files to mock `get_provider` instead of `OllamaEmbedder`
+  - Updated README: OpenAI listed as default, Ollama as alternative
+- **Evidence:** uncommitted (pending commit)
 
 ### 2026-02-17 — Fixed context purge: orphaned index dirs not cleaned up
 

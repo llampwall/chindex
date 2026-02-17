@@ -45,14 +45,18 @@ def run_watches(
             from chinvex.search import search_chunks
             from chinvex.storage import Storage
             from chinvex.vectors import VectorStore
-            from chinvex.embed import OllamaEmbedder
+            from chinvex.embedding_providers import get_provider
 
             # Initialize search components
             db_path = context.index.sqlite_path
             chroma_dir = context.index.chroma_dir
             storage = Storage(db_path)
             vectors = VectorStore(chroma_dir)
-            embedder = OllamaEmbedder(context.ollama.base_url, context.ollama.embed_model)
+            embedder = get_provider(
+                cli_provider=None,
+                context_config={"embedding": {"provider": context.embedding.provider, "model": context.embedding.model}} if context.embedding else None,
+                env_provider=None,
+            )
 
             # Search all chunks
             results = search_chunks(
