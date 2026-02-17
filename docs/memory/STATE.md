@@ -7,14 +7,14 @@
 Skills, backup infrastructure, and embedding provider hardening
 
 ## Active Work
-- Implemented proper connection management for ChromaDB and SQLite
-  - Added VectorStore.close() method using ChromaDB's _system.stop()
-  - Added context manager support to VectorStore
-  - Added gateway shutdown handler to close connections cleanly
+- Completed proper connection management for ChromaDB and SQLite
+  - VectorStore.close() method using ChromaDB's _system.stop()
+  - Context manager support for automatic cleanup
+  - Gateway shutdown handler for graceful connection cleanup
   - Fixed Windows file lock issues (PermissionError on database deletion)
-- Added using-chinvex skill for Claude Code and Codex with comprehensive CLI workflow docs
-- Implemented automatic context.json backup system (30 backups, auto-prune)
-- Fixed OpenAI as default embedding provider; search reads provider from meta.json
+- Completed using-chinvex skill for Claude Code and Codex with comprehensive CLI workflow docs
+- Completed automatic context.json backup system (30 backups, auto-prune)
+- Completed OpenAI as default embedding provider; search reads provider from meta.json
 
 ## Blockers
 None
@@ -40,6 +40,6 @@ None
 
 ---
 Last memory update: 2026-02-16
-Commits covered through: d09574488014d1b67235b56b5586bb0f3466c38b
+Commits covered through: 5adfbfa71318cc84b7524f34595fe56c9432295c
 
-<!-- chinvex:last-commit:d09574488014d1b67235b56b5586bb0f3466c38b -->
+<!-- chinvex:last-commit:5adfbfa71318cc84b7524f34595fe56c9432295c -->
