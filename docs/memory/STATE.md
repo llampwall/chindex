@@ -4,22 +4,16 @@
 # State
 
 ## Current Objective
-Skills, backup infrastructure, and embedding provider hardening
+Infrastructure hardening: connection management, purge correctness, strap uninstall cleanup
 
 ## Active Work
-- Completed proper connection management for ChromaDB and SQLite
-  - VectorStore.close() method using ChromaDB's _system.stop()
-  - Context manager support for automatic cleanup
-  - Gateway shutdown handler for graceful connection cleanup
-  - Fixed Windows file lock issues (PermissionError on database deletion)
-- Completed using-chinvex skill for Claude Code and Codex with comprehensive CLI workflow docs
-- Completed automatic context.json backup system (30 backups, auto-prune)
-- Completed OpenAI as default embedding provider; search reads provider from meta.json
+- All session tasks complete (purge bugs fixed, orphaned indexes cleared, scripts organized)
 
 ## Blockers
 None
 
 ## Next Actions
+- [ ] Test strap uninstall end-to-end to confirm purge now leaves nothing behind
 - [ ] Test dashboard status integration end-to-end
 - [ ] Validate depth change workflow (sync metadata + rebuild-index)
 - [ ] Complete P5b planning and implementation (memory maintainer, startup hooks)
@@ -39,7 +33,7 @@ None
 - Automated golden query generation
 
 ---
-Last memory update: 2026-02-16
-Commits covered through: 5adfbfa71318cc84b7524f34595fe56c9432295c
+Last memory update: 2026-02-17
+Commits covered through: a074d0f9b40468ff5e1796424069d537054c796c
 
-<!-- chinvex:last-commit:5adfbfa71318cc84b7524f34595fe56c9432295c -->
+<!-- chinvex:last-commit:a074d0f9b40468ff5e1796424069d537054c796c -->

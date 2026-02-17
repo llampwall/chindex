@@ -4,18 +4,27 @@
 # Decisions
 
 ## Recent (last 30 days)
+- Fixed context purge to delete index dir + handle orphaned index-only dirs (strap uninstall now fully clean)
 - Implemented proper connection management for ChromaDB and SQLite (fixes Windows file lock errors)
 - Fixed OpenAI as default embedding provider; search reads provider from meta.json (prevents dimension mismatch)
 - Added automatic context.json backup system (30 backups per context, auto-prune)
 - Created using-chinvex skill for Claude Code and Codex with full CLI workflow docs
-- Documented using-chinvex skill in README with Skills for AI Agents section
 - Add `chinvex context sync-metadata-from-strap` command to sync registry.json → context.json
 - Implement .chinvex-status.json files with PID tracking for dashboard integration
-- Exclude status files from sync daemon to prevent infinite loop
 - Complete P5.3 eval suite with golden queries, metrics, and CI gate
 - Complete P5.4 reranker with Cohere, Jina, and local cross-encoder providers
 
 ## 2026-02
+
+### 2026-02-17 — Fixed context purge: orphaned index dirs not cleaned up
+
+- **Symptom:** After `strap uninstall`, index directories remained in `P:\ai_memory\indexes\<name>` with stale SQLite and ChromaDB data. Stress test of 17 repos left ~316MB of orphaned data.
+- **Root cause (1):** `_purge_context_data()` only deleted `context_dir` — never touched `indexes_root/<name>`. Two separate code paths existed: `_delete_context()` (archive, deletes both) and `_purge_context_data()` (purge, deleted context only).
+- **Root cause (2):** `_delete_context()` returned `False` immediately if `ctx_dir` was missing, without checking `idx_dir` — orphaned index-only dirs survived explicit purge calls.
+- **Root cause (3):** `context_purge_cmd` hard-exited if `ctx_dir` missing, preventing cleanup logic from running at all.
+- **Fix:** `_purge_context_data` delegates to `_delete_context`. `_delete_context` now checks both dirs independently and deletes whichever exist. `context_purge_cmd` checks both dirs before early-exiting and shows each in confirmation.
+- **Prevention:** Always use `_delete_context` as the single deletion path. Any new removal code must delete both dirs.
+- **Evidence:** 77c1af2, a074d0f
 
 ### 2026-02-16 — Implemented proper connection management for ChromaDB and SQLite
 

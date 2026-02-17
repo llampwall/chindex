@@ -29,6 +29,7 @@
 - Exclude `.chinvex-status.json` from sync daemon file watching (prevents infinite loop)
 - Status/tags changes: sync metadata only (no ingest), depth changes: sync metadata + `--rebuild-index`
 - Search must read embedding provider from meta.json (never hardcode provider; errors if meta.json missing)
+- `chinvex context purge <name>` deletes both context dir AND index dir; works even if only one exists (updated 2026-02-17)
 
 ## Key Facts
 - Default contexts root: `P:\ai_memory\contexts`
@@ -40,6 +41,8 @@
 - Repo status file: `<repo>/.chinvex-status.json` (states: ingesting, idle, error, stale)
 
 ## Hazards
+- `chinvex context purge` previously only deleted context dir, left index dir behind — caused stale data after `strap uninstall` (fixed 2026-02-17)
+- `_delete_context` previously returned False without cleaning up if ctx_dir missing — orphaned index dirs survived even explicit purge calls (fixed 2026-02-17)
 - ChromaDB/SQLite connections not explicitly closed before file deletion cause Windows PermissionError [WinError 32] (fixed 2026-02-16)
 - Long-running processes (gateway, daemon) accumulate VectorStore connections if not closed; use context manager or explicit close() (fixed 2026-02-16)
 - Simply setting `client = None` doesn't release ChromaDB file locks; must call `client._system.stop()` (documented 2026-02-16)
