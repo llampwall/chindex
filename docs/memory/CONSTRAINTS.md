@@ -18,6 +18,8 @@
 - Strap registry.json is source of truth for repo metadata (status, tags, chinvex_depth)
 - Context.json backups stored in `P:\ai_memory\backups\<name>\` (30 most recent kept, auto-pruned)
 - Backup root configurable via `CHINVEX_BACKUPS_ROOT` environment variable
+- STATUS.json tracks total index counts (file_count, chunk_count) via Storage.count_chunks() and count_documents() (added 2026-02-17)
+- Gateway /v1/contexts endpoint reads STATUS.json to serve real-time counts and sync status to dashboard (added 2026-02-17)
 
 ## Rules
 - Always use `--rebuild-index` when switching embedding providers (prevents dimension mismatch)
@@ -30,6 +32,7 @@
 - Status/tags changes: sync metadata only (no ingest), depth changes: sync metadata + `--rebuild-index`
 - Search must read embedding provider from meta.json (never hardcode provider; errors if meta.json missing)
 - `chinvex context purge <name>` deletes both context dir AND index dir; works even if only one exists (updated 2026-02-17)
+- STATUS.json file/chunk counts reflect total index state (not per-run deltas) for dashboard display (added 2026-02-17)
 
 ## Key Facts
 - Default contexts root: `P:\ai_memory\contexts`
@@ -39,8 +42,11 @@
 - Query log: `.chinvex/logs/queries.jsonl` (30-day retention)
 - SessionStart hook path: `<repo>/.claude/settings.json`
 - Repo status file: `<repo>/.chinvex-status.json` (states: ingesting, idle, error, stale)
+- Default embedding provider: openai/text-embedding-3-small (changed 2026-02-17)
 
 ## Hazards
+- `walk_files` previously crashed on PermissionError when os.walk entered an inaccessible directory — aborted entire ingest (fixed 2026-02-19, onerror handler added)
+- `repo_excludes` patterns previously only filtered files, not directory traversal — excluded dirs were still descended into (fixed 2026-02-19, dirnames now pruned by exclude patterns)
 - `chinvex context purge` previously only deleted context dir, left index dir behind — caused stale data after `strap uninstall` (fixed 2026-02-17)
 - `_delete_context` previously returned False without cleaning up if ctx_dir missing — orphaned index dirs survived even explicit purge calls (fixed 2026-02-17)
 - ChromaDB/SQLite connections not explicitly closed before file deletion cause Windows PermissionError [WinError 32] (fixed 2026-02-16)

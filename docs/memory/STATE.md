@@ -4,16 +4,15 @@
 # State
 
 ## Current Objective
-Embedding provider migration: purge ollama defaults, establish openai as default everywhere
+Gateway dashboard integration: accurate file/chunk counts and sync status reporting
 
 ## Active Work
-- Ollama→OpenAI default migration complete (code, tests, data, README all updated, uncommitted)
+- All recent changes committed and clean working tree
 
 ## Blockers
 None
 
 ## Next Actions
-- [ ] Commit ollama→openai migration changes
 - [ ] Re-ingest contexts with 0 chunks using OpenAI embeddings
 - [ ] Test strap uninstall end-to-end to confirm purge leaves nothing behind
 - [ ] Complete P5b planning and implementation (memory maintainer, startup hooks)
@@ -34,6 +33,6 @@ None
 
 ---
 Last memory update: 2026-02-17
-Commits covered through: 7f676ea30d7254bccde40dcbd09acfec8a41d5ef
+Commits covered through: 1ac6866de91523e9df968f5d5c27cd73929561f9
 
-<!-- chinvex:last-commit:7f676ea30d7254bccde40dcbd09acfec8a41d5ef -->
+<!-- chinvex:last-commit:1ac6866de91523e9df968f5d5c27cd73929561f9 -->

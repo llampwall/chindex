@@ -4,6 +4,8 @@
 # Decisions
 
 ## Recent (last 30 days)
+- Fixed walk_files: onerror handler skips inaccessible dirs; repo_excludes patterns now prune directory traversal (not just files)
+- Gateway now returns real file/chunk counts from STATUS.json using Storage.count_chunks() for dashboard display
 - Purged all ollama defaults: openai/text-embedding-3-small is now the default everywhere (code, data, tests, README)
 - Patched 13 legacy context.json files to add explicit `embedding` config block
 - Fixed context purge to delete index dir + handle orphaned index-only dirs (strap uninstall now fully clean)
@@ -16,6 +18,26 @@
 
 ## 2026-02
 
+### 2026-02-19 — Fixed walk_files: PermissionError crash + directory-level exclude filtering
+
+- **Why:** Ingest of allmind crashed with `[Errno 13] Permission denied: data/persona` — a restricted runtime dir not in SKIP_DIRS. Root cause was two bugs: (1) `repo_excludes` patterns filtered files only, never pruned `dirnames`, so excluded dirs were still descended into; (2) no `onerror` handler meant any PermissionError aborted the entire walk.
+- **Impact:**
+  - Added `onerror` handler to `os.walk` — inaccessible dirs now log a warning and are skipped
+  - `dirnames` now pruned by both SKIP_DIRS and `should_exclude` patterns before traversal
+  - Added `"data"` to allmind context's `repo_excludes` so `data/` is never entered
+- **Evidence:** (this commit)
+
+### 2026-02-17 — Gateway now returns real file/chunk counts for dashboard
+
+- **Why:** Allmind dashboard needs accurate total counts for each context, not per-run deltas. Previous implementation read counts from context.json which showed incremental changes during ingestion.
+- **Impact:**
+  - STATUS.json now tracks total index counts using `Storage.count_chunks()` and `Storage.count_documents()` at end of ingestion
+  - Gateway `/v1/contexts` endpoint reads STATUS.json to serve `file_count`, `chunk_count`, and sync status
+  - Dashboard displays real-time accurate totals instead of stale per-run deltas
+  - Added methods: `Storage.count_chunks(context_name)`, `Storage.count_documents(context_name)`
+- **Trade-off:** Slightly slower ingestion (adds count queries), but necessary for accurate dashboard display
+- **Evidence:** 1ac6866
+
 ### 2026-02-17 — Purged ollama defaults: openai is now the default embedding provider
 
 - **Why:** 12 of 19 contexts had no `embedding` config block and fell back to ollama/mxbai-embed-large. Multiple code paths still defaulted to ollama. This caused status display to show ollama and would fail ingestion with OpenAI.
@@ -27,7 +49,7 @@
   - Patched 13 context.json files to add explicit `embedding` config
   - Updated 3 test files to mock `get_provider` instead of `OllamaEmbedder`
   - Updated README: OpenAI listed as default, Ollama as alternative
-- **Evidence:** uncommitted (pending commit)
+- **Evidence:** 13384bb
 
 ### 2026-02-17 — Fixed context purge: orphaned index dirs not cleaned up
 

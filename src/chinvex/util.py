@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import logging
 import os
 import platform
 import shutil
@@ -72,11 +73,19 @@ def should_exclude(path: Path, root: Path, excludes: list[str]) -> bool:
 def walk_files(root: Path, excludes: list[str] | None = None) -> Iterable[Path]:
     """Walk files in root, skipping SKIP_DIRS and paths matching exclude patterns."""
     excludes = excludes or []
+    log = logging.getLogger(__name__)
 
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+    def _onerror(err: OSError) -> None:
+        log.warning("walk_files: skipping inaccessible path %s (%s)", err.filename, err.strerror)
+
+    for dirpath, dirnames, filenames in os.walk(root, onerror=_onerror):
+        current = Path(dirpath)
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in SKIP_DIRS and not should_exclude(current / d, root, excludes)
+        ]
         for filename in filenames:
-            path = Path(dirpath) / filename
+            path = current / filename
             if path.suffix.lower() in ALLOWED_EXTS and not should_exclude(path, root, excludes):
                 yield path
 
