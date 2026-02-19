@@ -62,20 +62,8 @@ def format_status_output(contexts: list[ContextStatus], watcher_running: bool) -
 
 
 def read_global_status(contexts_root: Path) -> str:
-    """
-    Read GLOBAL_STATUS.md if it exists.
-
-    Args:
-        contexts_root: Root directory for contexts
-
-    Returns:
-        Contents of GLOBAL_STATUS.md
-    """
-    global_status = contexts_root / "GLOBAL_STATUS.md"
-    if not global_status.exists():
-        return "GLOBAL_STATUS.md not found. Run ingest to generate."
-
-    return global_status.read_text(encoding="utf-8")
+    """Generate live status from STATUS.json files."""
+    return generate_status_from_contexts(contexts_root)
 
 
 def generate_status_from_contexts(contexts_root: Path) -> str:

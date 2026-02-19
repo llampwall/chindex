@@ -1877,25 +1877,15 @@ def status(
         None,
         help="Root directory for contexts (default: CHINVEX_CONTEXTS_ROOT env or P:/ai_memory/contexts)"
     ),
-    regenerate: bool = typer.Option(False, help="Regenerate from STATUS.json files")
 ):
     """Show global system status."""
     import os
-    from .cli_status import read_global_status, generate_status_from_contexts
+    from .cli_status import read_global_status
 
-    # Resolve contexts root
     if contexts_root is None:
         contexts_root = Path(os.getenv("CHINVEX_CONTEXTS_ROOT", "P:/ai_memory/contexts"))
 
-    if regenerate:
-        output = generate_status_from_contexts(contexts_root)
-        # Write back to GLOBAL_STATUS.md
-        global_status_md = contexts_root / "GLOBAL_STATUS.md"
-        global_status_md.write_text(output, encoding="utf-8")
-    else:
-        output = read_global_status(contexts_root)
-
-    print(output)
+    print(read_global_status(contexts_root))
 
 
 # ================================
