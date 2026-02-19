@@ -55,12 +55,26 @@ def test_ingest_codex_sessions_with_fingerprinting(tmp_path: Path, monkeypatch) 
     storage = Storage(tmp_path / "hybrid.db")
     storage.ensure_schema()
 
+    # Patch upsert_chunks to pad old 10-column rows to 13 columns (chinvex_depth, status, tags_json)
+    _original_upsert_chunks = storage.upsert_chunks.__func__  # type: ignore[attr-defined]
+
+    def _padded_upsert_chunks(self, rows):
+        padded = []
+        for row in rows:
+            if len(row) == 10:
+                # Insert chinvex_depth, status, tags_json after repo (index 4)
+                row = row[:5] + (None, None, None) + row[5:]
+            padded.append(row)
+        return _original_upsert_chunks(self, padded)
+
+    monkeypatch.setattr(storage, "upsert_chunks", lambda rows: _padded_upsert_chunks(storage, rows))
+
     vectors = VectorStore(tmp_path / "chroma")
     embedder = FakeEmbedder()
 
     monkeypatch.setattr("chinvex.ingest.AppServerClient", FakeAppServerClient)
 
-    stats = {"documents": 0, "chunks": 0, "skipped": 0}
+    stats = {"documents": 0, "chunks": 0, "skipped": 0, "embeddings_new": 0, "embeddings_reused": 0, "chunks_new": 0, "chunks_updated": 0}
     tracking = {
         "new_doc_ids": [],
         "updated_doc_ids": [],
@@ -89,7 +103,7 @@ def test_ingest_codex_sessions_with_fingerprinting(tmp_path: Path, monkeypatch) 
     assert fp["last_status"] == "ok"
 
     # Second ingest should skip
-    stats2 = {"documents": 0, "chunks": 0, "skipped": 0}
+    stats2 = {"documents": 0, "chunks": 0, "skipped": 0, "embeddings_new": 0, "embeddings_reused": 0, "chunks_new": 0, "chunks_updated": 0}
     tracking2 = {
         "new_doc_ids": [],
         "updated_doc_ids": [],

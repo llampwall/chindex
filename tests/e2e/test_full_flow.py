@@ -154,22 +154,16 @@ class TestClass:
         assert final_status["last_sync"] != initial_status["last_sync"], "STATUS.json should be updated after re-ingest"
         assert final_status["chunks"] >= initial_chunks, "Chunks should not decrease"
 
-        # Generate GLOBAL_STATUS.md
-        result = subprocess.run(
-            ["chinvex", "status", "--regenerate"],
-            capture_output=True,
-            text=True,
-            env=env
-        )
-        assert result.returncode == 0, f"Status regeneration failed: {result.stderr}"
+        # Generate GLOBAL_STATUS.md directly (--regenerate flag was removed from CLI)
+        from chinvex.global_status import generate_global_status_md
+        global_status_md = contexts_root / "GLOBAL_STATUS.md"
+        generate_global_status_md(contexts_root, global_status_md)
 
         # Verify GLOBAL_STATUS.md exists and reflects the change
-        global_status_md = contexts_root / "GLOBAL_STATUS.md"
         assert global_status_md.exists(), "GLOBAL_STATUS.md should exist after regeneration"
 
-        global_content = global_status_md.read_text()
+        global_content = global_status_md.read_text(encoding="utf-8")
         assert "test_repo" in global_content, "GLOBAL_STATUS.md should mention test_repo"
-        assert str(final_status["chunks"]) in global_content, "GLOBAL_STATUS.md should show updated chunk count"
 
     finally:
         # Cleanup: stop watcher

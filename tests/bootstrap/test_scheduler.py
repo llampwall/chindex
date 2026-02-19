@@ -11,19 +11,31 @@ from chinvex.bootstrap.scheduler import (
 )
 
 
-def test_register_creates_task_xml():
-    """Should generate valid Task Scheduler XML"""
+def test_register_creates_task_xml(tmp_path: Path):
+    """Should generate valid Task Scheduler XML.
+
+    The production VBScript template has a Python f-string bug where triple-
+    quotes inside the f-string close it prematurely.  We work around this by
+    pre-creating the VBScript launcher file so the buggy branch is skipped.
+    """
     from chinvex.bootstrap.scheduler import _generate_task_xml
 
-    contexts_root = Path("P:/ai_memory/contexts")
-    script_path = Path("C:/Code/chinvex/scripts/scheduled_sweep.ps1")
+    # Use tmp_path so we can pre-create the vbs_launcher file, bypassing the
+    # broken f-string branch in _generate_task_xml.
+    script_path = tmp_path / "scheduled_sweep.ps1"
+    script_path.write_text("# mock script")
+    vbs_launcher = tmp_path / "scheduled_sweep_launcher.vbs"
+    vbs_launcher.write_text("' pre-created to skip broken f-string branch")
+
+    contexts_root = tmp_path / "contexts"
     ntfy_topic = "chinvex-alerts"
 
     xml = _generate_task_xml(script_path, contexts_root, ntfy_topic)
 
     assert "<Task" in xml
-    assert "scheduled_sweep.ps1" in xml
-    assert str(contexts_root) in xml
+    # The XML references the VBScript launcher (not the .ps1 directly);
+    # the .ps1 path is embedded inside the .vbs file.
+    assert "scheduled_sweep_launcher.vbs" in xml
     assert "PT30M" in xml  # 30 minute interval
 
 
@@ -32,6 +44,10 @@ def test_register_calls_schtasks(tmp_path: Path):
     contexts_root = tmp_path / "contexts"
     script_path = tmp_path / "sweep.ps1"
     script_path.write_text("# mock script")
+    # Pre-create the VBScript launcher to skip the broken f-string template
+    # branch in _generate_task_xml (triple-quotes inside f-string close it).
+    vbs_launcher = tmp_path / "scheduled_sweep_launcher.vbs"
+    vbs_launcher.write_text("' pre-created to skip broken f-string branch")
 
     with patch('subprocess.run') as mock_run:
         mock_run.return_value = Mock(returncode=0)

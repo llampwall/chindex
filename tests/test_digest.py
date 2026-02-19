@@ -1,16 +1,18 @@
 import pytest
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from chinvex.digest import generate_digest
 
 
 def test_generate_digest_basic(tmp_path):
     """Test basic digest generation."""
+    # Use timestamps within the last 24 hours so they are not filtered out
+    recent_ts = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     # Setup: create ingest_runs.jsonl
     runs_log = tmp_path / "ingest_runs.jsonl"
     runs_log.write_text(
-        '{"run_id": "run1", "status": "started", "started_at": "2026-01-29T12:00:00Z"}\n'
-        '{"run_id": "run1", "status": "succeeded", "ended_at": "2026-01-29T12:05:00Z", "docs_seen": 100, "docs_changed": 10, "chunks_new": 50, "chunks_updated": 20}\n'
+        f'{{"run_id": "run1", "status": "started", "started_at": "{recent_ts}"}}\n'
+        f'{{"run_id": "run1", "status": "succeeded", "ended_at": "{recent_ts}", "docs_seen": 100, "docs_changed": 10, "chunks_new": 50, "chunks_updated": 20}}\n'
     )
 
     # Generate digest
@@ -39,16 +41,18 @@ def test_generate_digest_basic(tmp_path):
 
 def test_generate_digest_with_watches(tmp_path):
     """Test digest includes watch hits."""
+    # Use timestamps within the last 24 hours so they are not filtered out
+    recent_ts = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     # Setup watch history
     watch_log = tmp_path / "watch_history.jsonl"
     watch_log.write_text(
-        '{"ts": "2026-01-29T10:00:00Z", "watch_id": "test_watch", "query": "retry logic", "hits": [{"chunk_id": "abc123", "score": 0.85, "snippet": "retry with backoff"}]}\n'
+        f'{{"ts": "{recent_ts}", "watch_id": "test_watch", "query": "retry logic", "hits": [{{"chunk_id": "abc123", "score": 0.85, "snippet": "retry with backoff"}}]}}\n'
     )
 
     # Setup ingest runs
     runs_log = tmp_path / "ingest_runs.jsonl"
     runs_log.write_text(
-        '{"run_id": "run1", "status": "succeeded", "ended_at": "2026-01-29T12:00:00Z", "docs_seen": 10, "docs_changed": 2, "chunks_new": 5, "chunks_updated": 0}\n'
+        f'{{"run_id": "run1", "status": "succeeded", "ended_at": "{recent_ts}", "docs_seen": 10, "docs_changed": 2, "chunks_new": 5, "chunks_updated": 0}}\n'
     )
 
     output_md = tmp_path / "digest.md"

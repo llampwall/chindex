@@ -129,22 +129,41 @@ def test_update_recent_rollup_includes_last_30_days():
 
 def test_update_recent_rollup_preserves_chronological_order():
     """Should list recent decisions in reverse chronological order (newest first)."""
-    current = """# Decisions
+    import datetime as dt
+    today = dt.date.today()
+    # Use dates within the last 30 days so they all appear in the Recent section
+    date_c = (today - dt.timedelta(days=5)).strftime("%Y-%m-%d")
+    date_b = (today - dt.timedelta(days=15)).strftime("%Y-%m-%d")
+    date_a = (today - dt.timedelta(days=25)).strftime("%Y-%m-%d")
+    month_c = (today - dt.timedelta(days=5)).strftime("%Y-%m")
+    month_b = (today - dt.timedelta(days=15)).strftime("%Y-%m")
+    month_a = (today - dt.timedelta(days=25)).strftime("%Y-%m")
+
+    # Build content - may need multiple sections if dates span different months
+    sections: dict[str, list[str]] = {}
+    for date_str, label, month in [(date_c, "Decision C", month_c), (date_b, "Decision B", month_b), (date_a, "Decision A", month_a)]:
+        sections.setdefault(month, []).append(f"- ({date_str}) {label}")
+
+    section_text = ""
+    for month in sorted(sections.keys(), reverse=True):
+        section_text += f"\n## {month}\n" + "\n".join(sections[month]) + "\n"
+
+    current = f"""# Decisions
 
 ## Recent (last 30 days)
 - TBD
-
-## 2026-01
-- (2026-01-31) Decision C
-- (2026-01-20) Decision B
-- (2026-01-10) Decision A
-"""
+{section_text}"""
 
     updated = update_recent_rollup(current)
 
     recent_section_start = updated.find("## Recent")
     next_section = updated.find("\n## ", recent_section_start + 10)
     recent_content = updated[recent_section_start:next_section]
+
+    # All three should be in the recent section
+    assert "Decision C" in recent_content
+    assert "Decision B" in recent_content
+    assert "Decision A" in recent_content
 
     # Newest should come first
     pos_c = recent_content.find("Decision C")

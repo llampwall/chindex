@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from chinvex.storage import Storage
 from chinvex.archive import archive_old_documents
+from chinvex.context import RepoMetadata
 from unittest.mock import patch, MagicMock
 
 
@@ -37,7 +38,7 @@ def test_auto_archive_runs_after_ingest(tmp_path):
         name="test",
         aliases=[],
         includes=ContextIncludes(
-            repos=[test_repo],
+            repos=[RepoMetadata(path=test_repo, chinvex_depth="full", status="active", tags=[])],
             chat_roots=[],
             codex_session_roots=[],
             note_roots=[]
@@ -113,7 +114,7 @@ def test_auto_archive_respects_enabled_flag(tmp_path):
         name="test",
         aliases=[],
         includes=ContextIncludes(
-            repos=[test_repo],
+            repos=[RepoMetadata(path=test_repo, chinvex_depth="full", status="active", tags=[])],
             chat_roots=[],
             codex_session_roots=[],
             note_roots=[]
@@ -189,7 +190,7 @@ def test_auto_archive_logs_count(tmp_path, capsys):
         name="test",
         aliases=[],
         includes=ContextIncludes(
-            repos=[test_repo],
+            repos=[RepoMetadata(path=test_repo, chinvex_depth="full", status="active", tags=[])],
             chat_roots=[],
             codex_session_roots=[],
             note_roots=[]

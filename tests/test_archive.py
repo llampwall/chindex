@@ -23,10 +23,11 @@ def test_archive_by_age_marks_old_chunks(tmp_path: Path):
     old_time = datetime.now(timezone.utc) - timedelta(days=100)
     recent_time = datetime.now(timezone.utc) - timedelta(days=10)
 
-    # Use upsert_chunks with correct signature
+    # Use upsert_chunks with correct signature (13 columns):
+    # chunk_id, doc_id, source_type, project, repo, chinvex_depth, status, tags_json, ordinal, text, updated_at, meta_json, chunk_key
     storage.upsert_chunks([
-        ("chunk1", "doc1", "repo", "test", "test", 0, "old content", old_time.isoformat(), "{}", "key1"),
-        ("chunk2", "doc1", "repo", "test", "test", 1, "recent content", recent_time.isoformat(), "{}", "key2"),
+        ("chunk1", "doc1", "repo", "test", "test", "full", "active", "[]", 0, "old content", old_time.isoformat(), "{}", "key1"),
+        ("chunk2", "doc1", "repo", "test", "test", "full", "active", "[]", 1, "recent content", recent_time.isoformat(), "{}", "key2"),
     ])
 
     # Archive chunks older than 90 days
@@ -61,9 +62,10 @@ def test_archive_by_count_archives_oldest(tmp_path: Path):
 
     # Insert 10 chunks with different ages
     chunks = []
+    # 13 columns: chunk_id, doc_id, source_type, project, repo, chinvex_depth, status, tags_json, ordinal, text, updated_at, meta_json, chunk_key
     for i in range(10):
         age = datetime.now(timezone.utc) - timedelta(days=i)
-        chunks.append((f"chunk{i}", "doc1", "repo", "test", "test", i, f"content{i}", age.isoformat(), "{}", f"key{i}"))
+        chunks.append((f"chunk{i}", "doc1", "repo", "test", "test", "full", "active", "[]", i, f"content{i}", age.isoformat(), "{}", f"key{i}"))
     storage.upsert_chunks(chunks)
 
     # Archive to keep only 5 chunks
@@ -100,7 +102,8 @@ def test_archive_skips_already_archived(tmp_path: Path):
     storage.conn.commit()
 
     # Insert chunk and mark as archived
-    storage.upsert_chunks([("chunk1", "doc1", "repo", "test", "test", 0, "content", now_iso(), "{}", "key1")])
+    # 13 columns: chunk_id, doc_id, source_type, project, repo, chinvex_depth, status, tags_json, ordinal, text, updated_at, meta_json, chunk_key
+    storage.upsert_chunks([("chunk1", "doc1", "repo", "test", "test", "full", "active", "[]", 0, "content", now_iso(), "{}", "key1")])
     storage.conn.execute("UPDATE chunks SET archived = 1 WHERE chunk_id = ?", ("chunk1",))
     storage.conn.commit()
 

@@ -4,7 +4,7 @@ from pathlib import Path
 def test_readme_contains_reranker_documentation():
     """Verify README.md documents reranker feature."""
     readme_path = Path(__file__).parent.parent / "README.md"
-    content = readme_path.read_text()
+    content = readme_path.read_text(encoding="utf-8")
 
     # Check for required sections/keywords
     assert "--rerank" in content, "README missing --rerank flag documentation"
@@ -19,7 +19,7 @@ def test_readme_contains_reranker_documentation():
 def test_readme_reranker_config_example():
     """Verify README contains reranker configuration example."""
     readme_path = Path(__file__).parent.parent / "README.md"
-    content = readme_path.read_text()
+    content = readme_path.read_text(encoding="utf-8")
 
     # Check for config structure
     assert '"provider"' in content, "README missing reranker provider field"

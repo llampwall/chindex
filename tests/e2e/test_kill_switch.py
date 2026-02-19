@@ -114,7 +114,12 @@ def test_kill_switch_recovery(tmp_path: Path):
 
     # Trigger sweep manually (instead of waiting 30 min)
     # In real usage, scheduled task would run this
-    script_path = Path("C:/Code/chinvex/scripts/scheduled_sweep.ps1").resolve()
+    # Find the script relative to the project root (tests/e2e/../.. = project root)
+    project_root = Path(__file__).parent.parent.parent
+    script_path = project_root / "scripts" / "scheduled_sweep.ps1"
+    if not script_path.exists():
+        pytest.skip(f"Sweep script not found at {script_path}")
+
     result = subprocess.run(
         [
             "pwsh", "-NoProfile", "-File",

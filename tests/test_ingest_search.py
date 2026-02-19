@@ -3,19 +3,41 @@ from pathlib import Path
 
 import pytest
 
-from chinvex.config import AppConfig, SourceConfig
-from chinvex.ingest import ingest
-from chinvex.search import search
+from chinvex.context import ContextConfig, ContextIncludes, ContextIndex, OllamaConfig, RepoMetadata
+from chinvex.ingest import ingest_context
+from chinvex.search import search_context
 from chinvex.storage import Storage
 
 
-class FakeEmbedder:
-    def __init__(self, host: str, model: str) -> None:
-        self.host = host
-        self.model = model
+class FakeProvider:
+    """Fake embedding provider that avoids network calls."""
+    dimensions = 3
+    model_name = "fake-model"
+    model = "fake-model"
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [[0.0, 0.1, 0.2] for _ in texts]
+
+
+def _make_context(tmp_path: Path, repo: Path) -> ContextConfig:
+    db_path = tmp_path / "index" / "hybrid.db"
+    chroma_dir = tmp_path / "index" / "chroma"
+    return ContextConfig(
+        schema_version=2,
+        name="TestCtx",
+        aliases=[],
+        includes=ContextIncludes(
+            repos=[RepoMetadata(path=repo, chinvex_depth="full", status="active", tags=[])],
+            chat_roots=[],
+            codex_session_roots=[],
+            note_roots=[]
+        ),
+        index=ContextIndex(sqlite_path=db_path, chroma_dir=chroma_dir),
+        weights={"repo": 1.0},
+        ollama=OllamaConfig(base_url="http://127.0.0.1:11434", embed_model="fake-model"),
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
 
 
 def _write_repo(tmp_path: Path) -> Path:
@@ -25,48 +47,16 @@ def _write_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _write_chat(tmp_path: Path) -> Path:
-    chat_dir = tmp_path / "chats"
-    chat_dir.mkdir()
-    payload = {
-        "conversation_id": "conv-1",
-        "title": "Test Chat",
-        "project": "Twitch",
-        "exported_at": "2024-01-01T00:00:00Z",
-        "url": "http://example",
-        "messages": [
-            {"role": "user", "text": "hello chat", "timestamp": None},
-            {"role": "assistant", "text": "reply here", "timestamp": None},
-        ],
-    }
-    (chat_dir / "chat.json").write_text(json.dumps(payload), encoding="utf-8")
-    return chat_dir
-
-
-def _make_config(tmp_path: Path, repo: Path, chat_dir: Path) -> AppConfig:
-    return AppConfig(
-        index_dir=tmp_path / "index",
-        ollama_host="http://127.0.0.1:11434",
-        embedding_model="mxbai-embed-large",
-        sources=(
-            SourceConfig(type="repo", name="streamside", path=repo),
-            SourceConfig(type="chat", project="Twitch", path=chat_dir),
-        ),
-    )
-
-
 def test_ingest_creates_db_and_chroma(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = _write_repo(tmp_path)
-    chat_dir = _write_chat(tmp_path)
-    config = _make_config(tmp_path, repo, chat_dir)
+    ctx = _make_context(tmp_path, repo)
 
-    monkeypatch.setattr("chinvex.ingest.OllamaEmbedder", FakeEmbedder)
+    monkeypatch.setattr("chinvex.embedding_providers.get_provider", lambda *a, **kw: FakeProvider())
 
-    stats = ingest(config)
-    assert stats["documents"] > 0
-    assert stats["chunks"] > 0
+    result = ingest_context(ctx)
+    assert len(result.new_doc_ids) > 0 or len(result.updated_doc_ids) > 0 or result.stats.get("documents", 0) > 0
 
-    db_path = config.index_dir / "hybrid.db"
+    db_path = ctx.index.sqlite_path
     storage = Storage(db_path)
     storage.ensure_schema()
     cur = storage.conn.execute("SELECT COUNT(*) AS c FROM documents")
@@ -75,24 +65,23 @@ def test_ingest_creates_db_and_chroma(tmp_path: Path, monkeypatch: pytest.Monkey
     assert cur.fetchone()["c"] > 0
     cur = storage.conn.execute("SELECT COUNT(*) AS c FROM chunks_fts")
     assert cur.fetchone()["c"] > 0
-    storage.close()
+    Storage.force_close_global_connection()
 
-    chroma_dir = config.index_dir / "chroma"
+    chroma_dir = ctx.index.chroma_dir
     assert chroma_dir.exists()
     from chinvex.vectors import VectorStore
-
     vectors = VectorStore(chroma_dir)
     assert vectors.count() > 0
 
 
 def test_search_returns_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = _write_repo(tmp_path)
-    chat_dir = _write_chat(tmp_path)
-    config = _make_config(tmp_path, repo, chat_dir)
+    ctx = _make_context(tmp_path, repo)
 
-    monkeypatch.setattr("chinvex.ingest.OllamaEmbedder", FakeEmbedder)
-    monkeypatch.setattr("chinvex.search.OllamaEmbedder", FakeEmbedder)
+    monkeypatch.setattr("chinvex.embedding_providers.get_provider", lambda *a, **kw: FakeProvider())
 
-    ingest(config)
-    results = search(config, "hello", k=5)
+    ingest_context(ctx)
+    Storage.force_close_global_connection()
+
+    results = search_context(ctx, "hello", k=5)
     assert results
