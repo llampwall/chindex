@@ -20,6 +20,8 @@
 - Backup root configurable via `CHINVEX_BACKUPS_ROOT` environment variable
 - STATUS.json tracks total index counts (file_count, chunk_count) via Storage.count_chunks() and count_documents() (added 2026-02-17)
 - Gateway /v1/contexts endpoint reads STATUS.json to serve real-time counts and sync status to dashboard (added 2026-02-17)
+- `chinvex status` reads live from each context's STATUS.json on every invocation; no GLOBAL_STATUS.md cache exists (updated 2026-02-18)
+- `upsert_chunks` expects 13-column tuples in current schema (updated 2026-02-18)
 
 ## Rules
 - Always use `--rebuild-index` when switching embedding providers (prevents dimension mismatch)
@@ -33,6 +35,7 @@
 - Search must read embedding provider from meta.json (never hardcode provider; errors if meta.json missing)
 - `chinvex context purge <name>` deletes both context dir AND index dir; works even if only one exists (updated 2026-02-17)
 - STATUS.json file/chunk counts reflect total index state (not per-run deltas) for dashboard display (added 2026-02-17)
+- `chinvex status --regenerate` flag has been removed; status is always live (updated 2026-02-18)
 
 ## Key Facts
 - Default contexts root: `P:\ai_memory\contexts`
@@ -60,6 +63,9 @@
 - Going from deeper to shallower depth without rebuild leaves stale data in index (will show up in queries)
 - Hardcoding embedding provider in search causes dimension mismatch when context was ingested with a different provider
 - Legacy context.json files without `embedding` block get `openai/text-embedding-3-small` at load time via `from_dict()` fallback (added 2026-02-17)
+- SQLite connections in multithreaded tests must be nulled (not closed) to avoid "ProgrammingError: Cannot operate on a closed database" across thread boundaries (added 2026-02-18)
+- ChromaDB file-lock cleanup test should be skipped on Windows (WinError 32 race condition in temp dir teardown) (added 2026-02-18)
 
 ## Superseded
 - (Superseded 2026-02-17) Default embedding provider was ollama/mxbai-embed-large — now openai/text-embedding-3-small everywhere (code, tests, data, README)
+- (Superseded 2026-02-18) `chinvex status --regenerate` flag existed to refresh GLOBAL_STATUS.md cache — cache removed, flag dropped (39fe9c0)

@@ -4,19 +4,31 @@
 # Decisions
 
 ## Recent (last 30 days)
+- Removed GLOBAL_STATUS.md cache from `chinvex status`; always reads live from STATUS.json; dropped --regenerate flag
+- Fixed 63 failing tests: schema drift (upsert_chunks 10→13 cols), SQLite cross-thread null-not-close pattern, relative timestamps in fixtures
 - Fixed walk_files: onerror handler skips inaccessible dirs; repo_excludes patterns now prune directory traversal (not just files)
 - Gateway now returns real file/chunk counts from STATUS.json using Storage.count_chunks() for dashboard display
 - Purged all ollama defaults: openai/text-embedding-3-small is now the default everywhere (code, data, tests, README)
-- Patched 13 legacy context.json files to add explicit `embedding` config block
 - Fixed context purge to delete index dir + handle orphaned index-only dirs (strap uninstall now fully clean)
 - Implemented proper connection management for ChromaDB and SQLite (fixes Windows file lock errors)
 - Added automatic context.json backup system (30 backups per context, auto-prune)
-- Created using-chinvex skill for Claude Code and Codex with full CLI workflow docs
 - Add `chinvex context sync-metadata-from-strap` command to sync registry.json → context.json
-- Complete P5.3 eval suite with golden queries, metrics, and CI gate
-- Complete P5.4 reranker with Cohere, Jina, and local cross-encoder providers
 
 ## 2026-02
+
+### 2026-02-18 — Removed GLOBAL_STATUS.md cache from chinvex status
+
+- **Why:** `chinvex status` read a GLOBAL_STATUS.md file that was never updated by ingest, causing all counts to display as 0. Cache was never being populated in the normal workflow.
+- **Impact:** Removed cache layer entirely. Status now reads live from each context's STATUS.json on every invocation. Dropped `--regenerate` flag (nothing to regenerate).
+- **Evidence:** 39fe9c0
+
+### 2026-02-18 — Fixed 63 test failures from schema drift and cross-thread SQLite
+
+- **Symptom:** 63 tests failing across 14 files after schema and behavior changes weren't reflected in test fixtures.
+- **Root cause:** (1) `upsert_chunks` schema grew to 13 columns but tests built 10-column tuples. (2) conftest.py closed SQLite connections in teardown, causing "ProgrammingError: Cannot operate on a closed database" when subsequent test threads ran. (3) Tests used hardcoded dates and paths instead of relative values.
+- **Fix:** Updated tuple widths to 13 cols; null globals in conftest teardown instead of calling close(); switched to relative timestamps; skipped ChromaDB file-lock test on Windows.
+- **Prevention:** When schema changes, grep test files for tuple construction patterns. Use null-not-close for SQLite in multithreaded test teardown.
+- **Evidence:** 1de5114
 
 ### 2026-02-19 — Fixed walk_files: PermissionError crash + directory-level exclude filtering
 
