@@ -163,13 +163,37 @@ def _add_to_archive_context(name: str, description: str) -> None:
         pass
 
 
+def _rmtree_with_retry(path, max_retries: int = 5, delay: float = 1.0) -> None:
+    """
+    Remove a directory tree with retries for Windows file lock resilience.
+
+    On Windows, external processes (gateway, sync daemon) may hold transient
+    file locks on SQLite/ChromaDB files. Retrying after a short delay allows
+    those locks to be released.
+    """
+    import shutil
+    import time
+    import sys
+
+    for attempt in range(max_retries):
+        try:
+            shutil.rmtree(path)
+            return
+        except PermissionError:
+            if attempt == max_retries - 1:
+                raise
+            if sys.platform == "win32":
+                time.sleep(delay)
+            else:
+                raise
+
+
 def _delete_context(name: str) -> bool:
     """
     Delete a context and its index directory.
     Returns True if anything was deleted, False if neither directory exists.
-    Raises PermissionError if files are locked.
+    Raises PermissionError if files are locked after retries.
     """
-    import shutil
     from .storage import Storage
 
     contexts_root = get_contexts_root()
@@ -181,16 +205,16 @@ def _delete_context(name: str) -> bool:
     if not ctx_dir.exists() and not idx_dir.exists():
         return False
 
-    # Force close any open database connections
+    # Force close any open database connections in this process
     Storage.force_close_global_connection()
 
     # Delete context directory if present
     if ctx_dir.exists():
-        shutil.rmtree(ctx_dir)
+        _rmtree_with_retry(ctx_dir)
 
     # Delete index directory if present (may exist without context dir)
     if idx_dir.exists():
-        shutil.rmtree(idx_dir)
+        _rmtree_with_retry(idx_dir)
 
     return True
 

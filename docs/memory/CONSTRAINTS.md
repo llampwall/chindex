@@ -33,7 +33,7 @@
 - Exclude `.chinvex-status.json` from sync daemon file watching (prevents infinite loop)
 - Status/tags changes: sync metadata only (no ingest), depth changes: sync metadata + `--rebuild-index`
 - Search must read embedding provider from meta.json (never hardcode provider; errors if meta.json missing)
-- `chinvex context purge <name>` deletes both context dir AND index dir; works even if only one exists (updated 2026-02-17)
+- `chinvex context purge <name>` deletes both context dir AND index dir; works even if only one exists; uses retry-with-delay on Windows for transient file locks (updated 2026-02-27)
 - STATUS.json file/chunk counts reflect total index state (not per-run deltas) for dashboard display (added 2026-02-17)
 - `chinvex status --regenerate` flag has been removed; status is always live (updated 2026-02-18)
 
@@ -53,7 +53,7 @@
 - `chinvex context purge` previously only deleted context dir, left index dir behind — caused stale data after `strap uninstall` (fixed 2026-02-17)
 - `_delete_context` previously returned False without cleaning up if ctx_dir missing — orphaned index dirs survived even explicit purge calls (fixed 2026-02-17)
 - ChromaDB/SQLite connections not explicitly closed before file deletion cause Windows PermissionError [WinError 32] (fixed 2026-02-16)
-- Long-running processes (gateway, daemon) accumulate VectorStore connections if not closed; use context manager or explicit close() (fixed 2026-02-16)
+- Long-running processes (gateway, daemon) accumulate VectorStore connections if not closed; use context manager or explicit close() (fixed 2026-02-16, search functions patched 2026-02-27)
 - Simply setting `client = None` doesn't release ChromaDB file locks; must call `client._system.stop()` (documented 2026-02-16)
 - JSON log files get ingested if `.json` is in `ALLOWED_EXTS` and logs directories aren't skipped (causes large index bloat)
 - Large chunks can exceed OpenAI token limits when batched (must batch by both count AND token estimate)
@@ -65,6 +65,8 @@
 - Legacy context.json files without `embedding` block get `openai/text-embedding-3-small` at load time via `from_dict()` fallback (added 2026-02-17)
 - SQLite connections in multithreaded tests must be nulled (not closed) to avoid "ProgrammingError: Cannot operate on a closed database" across thread boundaries (added 2026-02-18)
 - ChromaDB file-lock cleanup test should be skipped on Windows (WinError 32 race condition in temp dir teardown) (added 2026-02-18)
+- Search functions (search_context, hybrid_search_from_context, search) previously leaked VectorStore connections — never called close() after use, causing file lock accumulation in gateway process (fixed 2026-02-27)
+- `_delete_context` used single shutil.rmtree attempt — failed on Windows when external processes held transient file locks; now retries 5x with 1s delay (fixed 2026-02-27)
 
 ## Superseded
 - (Superseded 2026-02-17) Default embedding provider was ollama/mxbai-embed-large — now openai/text-embedding-3-small everywhere (code, tests, data, README)

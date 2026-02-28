@@ -61,32 +61,34 @@ def search(
     ollama_host = ollama_host_override or config.ollama_host
     embedder = OllamaEmbedder(ollama_host, config.embedding_model)
     vectors = VectorStore(chroma_dir)
-    scored = search_chunks(
-        storage,
-        vectors,
-        embedder,
-        query,
-        k=k,
-        min_score=min_score,
-        source=source,
-        project=project,
-        repo=repo,
-        weights=weights,
-        include_archive=include_archive,
-    )
-    results = [
-        SearchResult(
-            chunk_id=item.chunk_id,
-            score=item.score,
-            source_type=item.row["source_type"],
-            title=_title_from_row(item.row),
-            citation=_citation_from_row(item.row),
-            snippet=make_snippet(item.row["text"], limit=200),
+    try:
+        scored = search_chunks(
+            storage,
+            vectors,
+            embedder,
+            query,
+            k=k,
+            min_score=min_score,
+            source=source,
+            project=project,
+            repo=repo,
+            weights=weights,
+            include_archive=include_archive,
         )
-        for item in scored
-    ]
-    storage.close()
-    return results[:k]
+        results = [
+            SearchResult(
+                chunk_id=item.chunk_id,
+                score=item.score,
+                source_type=item.row["source_type"],
+                title=_title_from_row(item.row),
+                citation=_citation_from_row(item.row),
+                snippet=make_snippet(item.row["text"], limit=200),
+            )
+            for item in scored
+        ]
+        return results[:k]
+    finally:
+        vectors.close()
 
 
 def search_chunks(
@@ -356,90 +358,92 @@ def search_context(
     )
     vectors = VectorStore(chroma_dir)
 
-    # Determine if reranking should be used
-    use_reranker = (ctx.reranker is not None) or rerank
+    try:
+        # Determine if reranking should be used
+        use_reranker = (ctx.reranker is not None) or rerank
 
-    # If reranking enabled, fetch more candidates
-    if use_reranker and ctx.reranker:
-        candidates_k = ctx.reranker.candidates
-    else:
-        candidates_k = k
+        # If reranking enabled, fetch more candidates
+        if use_reranker and ctx.reranker:
+            candidates_k = ctx.reranker.candidates
+        else:
+            candidates_k = k
 
-    # Use context weights for source-type prioritization
-    scored = search_chunks(
-        storage,
-        vectors,
-        embedder,
-        query,
-        k=candidates_k,
-        min_score=min_score,
-        source=source,
-        project=project,
-        repo=repo,
-        weights=ctx.weights,
-    )
+        # Use context weights for source-type prioritization
+        scored = search_chunks(
+            storage,
+            vectors,
+            embedder,
+            query,
+            k=candidates_k,
+            min_score=min_score,
+            source=source,
+            project=project,
+            repo=repo,
+            weights=ctx.weights,
+        )
 
-    # Apply reranking if enabled and conditions met
-    if use_reranker and ctx.reranker and len(scored) >= 10:
-        try:
-            # Prepare candidates for reranking
-            candidates = [
-                {"chunk_id": item.chunk_id, "text": item.row["text"]}
-                for item in scored
-            ]
+        # Apply reranking if enabled and conditions met
+        if use_reranker and ctx.reranker and len(scored) >= 10:
+            try:
+                # Prepare candidates for reranking
+                candidates = [
+                    {"chunk_id": item.chunk_id, "text": item.row["text"]}
+                    for item in scored
+                ]
 
-            # Truncate to max 50 candidates
-            if len(candidates) > 50:
-                candidates = candidates[:50]
-                scored = scored[:50]
+                # Truncate to max 50 candidates
+                if len(candidates) > 50:
+                    candidates = candidates[:50]
+                    scored = scored[:50]
 
-            # Get reranker and rerank with 2s timeout
-            start_time = time.time()
-            reranker = _get_reranker(ctx.reranker)
-            reranked = reranker.rerank(query, candidates, top_k=k)
-            elapsed = time.time() - start_time
+                # Get reranker and rerank with 2s timeout
+                start_time = time.time()
+                reranker = _get_reranker(ctx.reranker)
+                reranked = reranker.rerank(query, candidates, top_k=k)
+                elapsed = time.time() - start_time
 
-            if elapsed > 2.0:
+                if elapsed > 2.0:
+                    print(
+                        f"Warning: Reranking took {elapsed:.2f}s (exceeded 2s budget)",
+                        file=sys.stderr
+                    )
+
+                # Map reranked results back to ScoredChunk objects
+                reranked_map = {r["chunk_id"]: r["rerank_score"] for r in reranked}
+                scored = [
+                    item for item in scored
+                    if item.chunk_id in reranked_map
+                ]
+                # Update scores with rerank scores
+                for item in scored:
+                    item.score = reranked_map[item.chunk_id]
+
+                # Sort by rerank score
+                scored.sort(key=lambda r: r.score, reverse=True)
+
+            except Exception as e:
+                # Fallback: use pre-rerank results
                 print(
-                    f"Warning: Reranking took {elapsed:.2f}s (exceeded 2s budget)",
+                    f"Warning: Reranker failed ({type(e).__name__}: {e}). "
+                    f"Falling back to pre-rerank results.",
                     file=sys.stderr
                 )
 
-            # Map reranked results back to ScoredChunk objects
-            reranked_map = {r["chunk_id"]: r["rerank_score"] for r in reranked}
-            scored = [
-                item for item in scored
-                if item.chunk_id in reranked_map
-            ]
-            # Update scores with rerank scores
-            for item in scored:
-                item.score = reranked_map[item.chunk_id]
-
-            # Sort by rerank score
-            scored.sort(key=lambda r: r.score, reverse=True)
-
-        except Exception as e:
-            # Fallback: use pre-rerank results
-            print(
-                f"Warning: Reranker failed ({type(e).__name__}: {e}). "
-                f"Falling back to pre-rerank results.",
-                file=sys.stderr
+        results = [
+            SearchResult(
+                chunk_id=item.chunk_id,
+                score=item.score,
+                source_type=item.row["source_type"],
+                title=_title_from_row(item.row),
+                citation=_citation_from_row(item.row),
+                snippet=make_snippet(item.row["text"], limit=200),
             )
+            for item in scored
+        ]
 
-    results = [
-        SearchResult(
-            chunk_id=item.chunk_id,
-            score=item.score,
-            source_type=item.row["source_type"],
-            title=_title_from_row(item.row),
-            citation=_citation_from_row(item.row),
-            snippet=make_snippet(item.row["text"], limit=200),
-        )
-        for item in scored
-    ]
-
-    storage.close()
-    return results[:k]
+        return results[:k]
+    finally:
+        vectors.close()
 
 
 def hybrid_search_from_context(
@@ -504,27 +508,30 @@ def hybrid_search_from_context(
         )
 
     vec_store = VectorStore(chroma_dir)
-    query_embedding = embedder.embed([query])
-    vec_results = vec_store.query(query_embedding, n_results=k * 2)
+    try:
+        query_embedding = embedder.embed([query])
+        vec_results = vec_store.query(query_embedding, n_results=k * 2)
 
-    # Merge and score
-    from .scoring import merge_and_rank
-    results = merge_and_rank(
-        fts_results=fts_results,
-        vec_results=vec_results,
-        storage=storage,
-        weights=context.weights,
-        k=k
-    )
-
-    # Apply recency if enabled
-    if not no_recency and hasattr(context, 'ranking') and context.ranking.recency_enabled:
-        results = apply_recency_decay(
-            results,
-            half_life_days=context.ranking.recency_half_life_days
+        # Merge and score
+        from .scoring import merge_and_rank
+        results = merge_and_rank(
+            fts_results=fts_results,
+            vec_results=vec_results,
+            storage=storage,
+            weights=context.weights,
+            k=k
         )
 
-    return results
+        # Apply recency if enabled
+        if not no_recency and hasattr(context, 'ranking') and context.ranking.recency_enabled:
+            results = apply_recency_decay(
+                results,
+                half_life_days=context.ranking.recency_half_life_days
+            )
+
+        return results
+    finally:
+        vec_store.close()
 
 
 def _detect_mixed_embedding_providers(contexts: list[str], contexts_root) -> None:
